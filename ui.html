@@ -404,9 +404,15 @@
     .verify-card--verified { background: var(--accent-dim); border-color: rgba(33,192,99,.35); }
     .verify-card--none, .verify-card--changed, .verify-card--outdated, .verify-card--failed, .verify-card--error { background: var(--danger-dim); border-color: rgba(255,92,64,.3); }
     .verify-badge { flex-shrink: 0; display: flex; }
-    button.verify-badge { background: none; border: none; padding: 0; cursor: pointer; border-radius: var(--r-sm); }
-    button.verify-badge:hover .verify-badge__img { transform: scale(1.06); }
-    button.verify-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .verify-card--go { position: relative; cursor: pointer; }
+    .verify-card--go:hover { filter: brightness(1.12); }
+    [data-theme="light"] .verify-card--go:hover { filter: brightness(.97); }
+    .verify-card--go:hover .verify-badge__img { transform: scale(1.06); }
+    button.verify-card__go { background: none; border: none; padding: 0; font: inherit; text-align: start; cursor: pointer; max-width: 100%; }
+    button.verify-card__go::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+    button.verify-card__go:focus-visible { outline: none; }
+    .verify-card--go:has(.verify-card__go:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .verify-card--go .verify-card__action, .verify-card--go .verify-card__hist { position: relative; z-index: 1; }
     @media (prefers-reduced-motion: no-preference) { .verify-badge__img { transition: transform .15s; } }
     .verify-entry { display: flex; flex-direction: column; gap: 0; }
     .verify-entry.has-log .verify-card { border-end-start-radius: 0; border-end-end-radius: 0; }
@@ -868,7 +874,8 @@
       { version: "2.10.0", date: "2026-10-18", current: true, changes: [
         { type: "new", text: "Frame history: every audit and every change (who, when and what changed) is logged on the frame — open History on the verification card" },
         { type: "new", text: "Click the layer name in an override (e.g. the icon's Vector) to select that exact layer" },
-        { type: "new", text: "Click the verification badge to select the frame on the canvas" },
+        { type: "new", text: "Click a verification card to select its frame on the canvas" },
+        { type: "new", text: "Calmer canvas navigation: no jump when the layer is already on screen, a short glide otherwise, zoom only when needed" },
         { type: "fix", text: "Shorter issue rows, clearer group headers in dark mode, buttons never squeezed, wider window opening top-left" },
       ]},
       { version: "2.9.0", date: "2026-10-17", current: false, changes: [
@@ -1569,7 +1576,7 @@
       if (!state.auditData) { return; }
       var ids = [];
       for (var i = 0; i < state.auditData.invalidInstances.length; i++) { ids.push(state.auditData.invalidInstances[i].id); }
-      postToPlugin("HIGHLIGHT_ALL", { nodeIds: ids });
+      postToPlugin("HIGHLIGHT_ALL", { nodeIds: ids, instant: reducedMotion() });
     });
 
     document.querySelectorAll(".rtab[data-tab]").forEach(function(chip) {
@@ -2028,7 +2035,7 @@
         bodyEl.appendChild(subEl);
       }
       el.appendChild(codeEl); el.appendChild(bodyEl); el.appendChild(gotoButton(item));
-      el.addEventListener("click", function() { postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); });
+      el.addEventListener("click", function() { focusCanvas(item.id); });
       return el;
     }
 
@@ -2266,17 +2273,26 @@
     function gotoButton(item) {
       var b = document.createElement("button"); b.type = "button"; b.className = "item__goto"; b.innerHTML = GOTO_SVG;
       b.setAttribute("aria-label", t("showOnCanvas") + ": " + (item.componentName || item.name || ""));
-      b.addEventListener("click", function(e) { e.stopPropagation(); postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); });
+      b.addEventListener("click", function(e) { e.stopPropagation(); focusCanvas(item.id); });
       return b;
     }
 
     // The exact layer inside the instance that carries the override (e.g. the leading icon's vector).
-    function layerButton(name, nodeId) {
+    function layerButton(name, nodeId, contextId) {
       var b = document.createElement("button"); b.type = "button"; b.className = "item__detail-layer"; b.textContent = name;
       b.title = t("selectLayer");
       b.setAttribute("aria-label", t("selectLayer") + ": " + name);
-      b.addEventListener("click", function(e) { e.stopPropagation(); postToPlugin("HIGHLIGHT_NODE", { nodeId: nodeId }); });
+      b.addEventListener("click", function(e) { e.stopPropagation(); focusCanvas(nodeId, contextId); });
       return b;
+    }
+
+    // Canvas navigation: the plugin decides whether to pan/zoom (see focusOn in code.js).
+    function reducedMotion() {
+      try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch(e) { return false; }
+    }
+    function focusCanvas(nodeId, contextId) {
+      if (!nodeId) { return; }
+      postToPlugin("HIGHLIGHT_NODE", { nodeId: nodeId, contextId: contextId || null, instant: reducedMotion() });
     }
 
     function addDiv(parent, cls, text) {
@@ -2354,7 +2370,7 @@
           var line = addDiv(details, "item__detail");
           var lay;
           if (groups[g].nodeId) {
-            lay = layerButton(groups[g].layer, groups[g].nodeId);
+            lay = layerButton(groups[g].layer, groups[g].nodeId, item.id);
             line.appendChild(lay);
           } else {
             lay = addSpan(line, "item__detail-layer", groups[g].layer);
@@ -2383,7 +2399,7 @@
       if (canResolve(key)) { buildResolveActions(bodyEl, item, key); }
 
       el.appendChild(bodyEl); el.appendChild(gotoButton(item));
-      el.addEventListener("click", function() { postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); });
+      el.addEventListener("click", function() { focusCanvas(item.id); });
       return el;
     }
 
@@ -2451,7 +2467,7 @@
         "<button class='ai-issue__goto' data-id='" + issue.instanceId + "'>" + t("aiGoto") + "</button>";
       head.addEventListener("click", function() { var ch = head.querySelector(".ai-issue__chev"); body.classList.toggle("is-open"); ch.classList.toggle("is-open"); });
       var gotoBtn = body.querySelector(".ai-issue__goto");
-      if (gotoBtn) { gotoBtn.addEventListener("click", function(e) { e.stopPropagation(); var id = gotoBtn.getAttribute("data-id"); if (id) { postToPlugin("HIGHLIGHT_NODE", { nodeId: id }); } }); }
+      if (gotoBtn) { gotoBtn.addEventListener("click", function(e) { e.stopPropagation(); var id = gotoBtn.getAttribute("data-id"); if (id) { focusCanvas(id); } }); }
       wrap.appendChild(head); wrap.appendChild(body);
       return wrap;
     }
@@ -2718,17 +2734,13 @@
       var card = document.createElement("div");
       card.className = "verify-card verify-card--" + st + (opts.clickable ? " is-clickable" : "");
 
-      // Badge: on its own (not inside a clickable card) it is a button that selects the frame.
-      var badgeIsBtn = !opts.clickable && !!item.id;
-      var badge = document.createElement(badgeIsBtn ? "button" : "span");
+      // Whole card selects the frame: a stretched button on the frame name covers the card (::after);
+      // the card's other buttons sit above it, so nothing is nested.
+      var stretch = !opts.clickable && !!item.id;
+      if (stretch) { card.classList.add("verify-card--go"); }
+      var badge = document.createElement("span");
       badge.className = "verify-badge verify-badge--" + st;
       badge.appendChild(badgeImg(st, opts.fromAudit ? 28 : 44));
-      if (badgeIsBtn) {
-        badge.type = "button";
-        badge.title = t("showOnCanvas");
-        badge.setAttribute("aria-label", t("showOnCanvas") + ": " + (item.name || "") + " (" + t("vs_" + st) + ")");
-        badge.addEventListener("click", function() { postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); });
-      }
 
       var body  = document.createElement("div"); body.className = "verify-card__body";
       var title = document.createElement("div"); title.className = "verify-card__title";
@@ -2739,7 +2751,13 @@
         tag.textContent = item.devStatus === "COMPLETED" ? t("completed") : t("readyForDev");
         title.appendChild(tag);
       }
-      var name = document.createElement("div"); name.className = "verify-card__name"; name.appendChild(icoEl("frame", "sm")); name.appendChild(bdi(item.name || ""));
+      var name = document.createElement(stretch ? "button" : "div"); name.className = "verify-card__name"; name.appendChild(icoEl("frame", "sm")); name.appendChild(bdi(item.name || ""));
+      if (stretch) {
+        name.type = "button"; name.classList.add("verify-card__go");
+        name.title = t("showOnCanvas");
+        name.setAttribute("aria-label", t("showOnCanvas") + ": " + (item.name || "") + " (" + t("vs_" + st) + ")");
+        name.addEventListener("click", function() { focusCanvas(item.id); });
+      }
       var metaText = verifyMeta(item, opts);
       body.appendChild(title); body.appendChild(name);
       if (metaText) {
@@ -2762,7 +2780,7 @@
       }
 
       if (opts.clickable && item.id) {
-        var go = function() { postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); };
+        var go = function() { focusCanvas(item.id); };
         card.addEventListener("click", go);
         makeActivatable(card, go, t("vs_" + st) + " — " + (item.name || "") + ". " + t("showOnCanvas"));
       }

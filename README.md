@@ -47,7 +47,7 @@ Variables-bound fills and strokes are fine. Text content and size changes are ig
 - **Verified stamp**: a frame with zero issues gets stamped. If it changes later, the stamp turns into *Changed since verification*. Copy edits and resizing don't count.
 - **Ready for dev**: mark a verified frame ready in one click. Developers see the stamp in Dev Mode.
 - **History**: every audited frame keeps a log of who audited it, when, and every change since (what changed, before → after, and the editor's name when they had Darooghe open).
-- **Jump to the problem**: click the layer name in an override (e.g. `Vector`) to select it, or the verification badge to select the frame.
+- **Jump to the problem**: click the layer name in an override (e.g. `Vector`) to select it, or a verification card to select the frame. The view only moves when the target isn't already on screen, and glides instead of jumping.
 - **Exceptions**: accept an intentional deviation with a note. It moves to *Passed* and stays accepted until the layer really changes.
 - **Exceptions report**: export every accepted exception in the file as CSV.
 

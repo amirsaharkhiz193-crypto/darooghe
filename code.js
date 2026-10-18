@@ -771,12 +771,93 @@ function buildPrompt(auditData, guidelines) {
 
 // ── Highlight ─────────────────────────────────────────────────
 
+// Calm canvas navigation (2.10.0):
+//  · already on screen at a readable size → select only, the view doesn't move
+//  · off screen → glide there at the current zoom
+//  · zoom changes only when needed: zoom out if it doesn't fit, zoom in if it would be tiny
+//  · a small layer inside a component is framed with its component (contextId) for orientation
+//  · the camera glides in ~200 ms; msg.instant (reduced motion) jumps
+var FOCUS_MIN_PX   = 24;    // smaller than this on screen → zoom in
+var FOCUS_TARGET_PX = 160;  // …until its longest side is about this big
+var FOCUS_FILL     = 0.8;   // never let the target take more than 80% of the view
+var FOCUS_MAX_ZOOM = 8;
+var FOCUS_STEPS    = 10;
+var FOCUS_STEP_MS  = 20;
+var focusSeq = 0;
+
+function boxOf(nodes) {
+  var x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (var i = 0; i < nodes.length; i++) {
+    var b = null;
+    try { b = nodes[i].absoluteRenderBounds || nodes[i].absoluteBoundingBox; } catch(e) { b = null; }
+    if (!b) { continue; }
+    x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.width); y2 = Math.max(y2, b.y + b.height);
+  }
+  return x1 === Infinity ? null : { x: x1, y: y1, width: Math.max(1, x2 - x1), height: Math.max(1, y2 - y1) };
+}
+
+function pageOf(node) {
+  var p = node;
+  while (p && p.type !== "PAGE") { p = p.parent; }
+  return p;
+}
+
+function glideTo(center, zoom, instant) {
+  var seq = ++focusSeq;
+  var vp = figma.viewport;
+  var c0 = vp.center, z0 = vp.zoom;
+  if (instant || (Math.abs(c0.x - center.x) * z0 < 1 && Math.abs(c0.y - center.y) * z0 < 1 && Math.abs(z0 - zoom) < 0.001)) {
+    vp.zoom = zoom; vp.center = center; return;
+  }
+  var i = 0;
+  (function step() {
+    if (seq !== focusSeq) { return; }                     // a newer click took over
+    i++;
+    var t = i / FOCUS_STEPS;
+    var e = 1 - Math.pow(1 - t, 3);                        // ease-out
+    var z = z0 * Math.pow(zoom / z0, e);                   // zoom interpolates geometrically (feels linear)
+    try {
+      vp.zoom = z;
+      vp.center = { x: c0.x + (center.x - c0.x) * e, y: c0.y + (center.y - c0.y) * e };
+    } catch(err) { return; }
+    if (i < FOCUS_STEPS) { setTimeout(step, FOCUS_STEP_MS); }
+  })();
+}
+
+function focusOn(selectNodes, frameNodes, instant) {
+  var box = boxOf(frameNodes);
+  figma.currentPage.selection = selectNodes;
+  if (!box) { try { figma.viewport.scrollAndZoomIntoView(selectNodes); } catch(e) {} return; }
+  var vb = figma.viewport.bounds, z = figma.viewport.zoom;
+  var screenW = vb.width * z, screenH = vb.height * z;
+  var fitZoom = Math.min(screenW * FOCUS_FILL / box.width, screenH * FOCUS_FILL / box.height);
+  var longest = Math.max(box.width, box.height) * z;
+  var zoom = z;
+  if (z > fitZoom) { zoom = fitZoom; }                                                   // too big: zoom out to fit
+  else if (longest < FOCUS_MIN_PX) {                                                    // too small: zoom in
+    zoom = Math.min(FOCUS_TARGET_PX / Math.max(box.width, box.height), fitZoom, Math.max(z, FOCUS_MAX_ZOOM));
+  }
+  var inside = box.x >= vb.x && box.y >= vb.y && box.x + box.width <= vb.x + vb.width && box.y + box.height <= vb.y + vb.height;
+  if (inside && zoom === z) { return; }                                                 // visible and readable: don't move
+  glideTo({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, zoom, instant);
+}
+
 function handleHighlightNode(msg) {
-  getNodeSafely(msg.nodeId).then(function(node) {
-    if (!node) { return; }
-    figma.currentPage.selection = [node];
-    figma.viewport.scrollAndZoomIntoView([node]);
-  });
+  Promise.all([getNodeSafely(msg.nodeId), msg.contextId ? getNodeSafely(msg.contextId) : Promise.resolve(null)]).then(function(r) {
+    var node = r[0], ctx = r[1];
+    if (!node || node.removed) { return; }
+    var page = pageOf(node);
+    var ready = (page && page !== figma.currentPage) ? figma.setCurrentPageAsync(page) : Promise.resolve();
+    return ready.then(function() {
+      // Frame the component around a small layer, unless the layer itself is already large.
+      var frameWith = [node];
+      if (ctx && !ctx.removed && ctx !== node) {
+        var b = boxOf([node]);
+        if (!b || Math.max(b.width, b.height) * figma.viewport.zoom < FOCUS_TARGET_PX) { frameWith = [ctx]; }
+      }
+      focusOn([node], frameWith, !!msg.instant);
+    });
+  }).catch(function() {});
 }
 
 function handleHighlightAll(msg) {
@@ -784,11 +865,10 @@ function handleHighlightAll(msg) {
     return getNodeSafely(id);
   });
   Promise.all(nodePromises).then(function(nodes) {
-    var validNodes = nodes.filter(function(n) { return n !== null; });
+    var validNodes = nodes.filter(function(n) { return n && !n.removed && pageOf(n) === figma.currentPage; });
     if (!validNodes.length) { return; }
-    figma.currentPage.selection = validNodes;
-    figma.viewport.scrollAndZoomIntoView(validNodes);
-  });
+    focusOn(validNodes, validNodes, !!msg.instant);
+  }).catch(function() {});
 }
 
 // ── Fetch DS Components ───────────────────────────────────────
