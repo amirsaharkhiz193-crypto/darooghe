@@ -11,6 +11,7 @@
 
     :root, [data-theme="dark"] {
       --bg: #141618; --rail: #101214; --surface: #1d2124; --surface-2: #22282c; --surface-3: #262c30;
+      --group-head: #2b3237; --group-head-hover: #323a40;
       --border: #24282b; --border-2: #2e3438;
       --accent: #21c063; --on-accent: #08130c; --accent-dim: rgba(33,192,99,.1);
       --danger: #ff7057; --danger-dim: rgba(255,92,64,.12);
@@ -24,6 +25,7 @@
 
     [data-theme="light"] {
       --bg: #f4f3f0; --rail: #ebe9e4; --surface: #ffffff; --surface-2: #f1efeb; --surface-3: #e9e6e0;
+      --group-head: #ebe8e2; --group-head-hover: #e3dfd8;
       --border: #e2dfd9; --border-2: #d4d0c8;
       --accent: #10733a; --on-accent: #ffffff; --accent-dim: rgba(20,145,74,.09);
       --danger: #b0361a; --danger-dim: rgba(176,54,26,.09);
@@ -239,8 +241,8 @@
     /* ── Result groups & items ── */
     .instance-list { display: flex; flex-direction: column; gap: 5px; }
     .group { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; flex-shrink: 0; }
-    .group__header { display: flex; align-items: center; gap: 8px; padding: 7px 11px; background: var(--surface-2); cursor: pointer; user-select: none; }
-    .group__header:hover { background: var(--surface-3); }
+    .group__header { display: flex; align-items: center; gap: 8px; padding: 7px 11px; background: var(--group-head); border-bottom: 1px solid var(--border-2); cursor: pointer; user-select: none; }
+    .group__header:hover { background: var(--group-head-hover); }
     .group__name { font-weight: 700; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .group__count { margin-inline-start: auto; font-size: 10px; font-weight: 700; border-radius: 9px; padding: 0 7px; line-height: 15px; flex-shrink: 0; }
     .group__count--danger  { color: var(--danger); background: var(--danger-dim); }
@@ -250,7 +252,7 @@
     .group__body { display: none; flex-direction: column; }
     .group__body.is-open { display: flex; }
 
-    .item { display: flex; align-items: center; gap: 9px; padding: 8px 11px; background: var(--surface); border-top: 1px solid var(--border); cursor: pointer; transition: background .15s; }
+    .item { display: flex; align-items: center; gap: 9px; padding: 6px 11px; background: var(--surface); border-top: 1px solid var(--border); cursor: pointer; transition: background .15s; }
     .item:hover { background: var(--surface-2); }
     .item.is-highlighted { background: var(--accent-dim); box-shadow: inset 2px 0 0 var(--accent); }
     .item__code { font-size: 10px; font-weight: 700; border: 1px solid; border-radius: 4px; padding: 1px 5px; letter-spacing: .5px; flex-shrink: 0; font-family: var(--mono); }
@@ -267,15 +269,23 @@
     .item__title .item__name { flex-shrink: 1; }
     .item__layer { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 2; }
     .item__variant { font-size: 11px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .item__details { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+    .item__details { display: flex; flex-direction: column; gap: 0; margin-top: 2px; }
     .item__detail { font-size: 11px; color: var(--text); line-height: 1.5; }
     .item__detail-layer { color: var(--text-2); }
+    button.item__detail-layer { display: inline-flex; align-items: center; min-height: 24px; vertical-align: middle; background: none; border: none; padding: 0; font: inherit; color: var(--text-2); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+    .group__header .group__code--danger, .group__header .group__count--danger { background: linear-gradient(var(--danger-dim), var(--danger-dim)), var(--surface); }
+    .group__header .group__code--warning { background: linear-gradient(var(--warning-dim), var(--warning-dim)), var(--surface); }
+    .group__header .group__count--success { background: linear-gradient(var(--accent-dim), var(--accent-dim)), var(--surface); }
+    button.item__detail-layer:hover { color: var(--accent); text-decoration-style: solid; }
+    button.item__detail-layer:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
     .item__detail-value { font-family: var(--mono); font-size: 11px; color: var(--warning); unicode-bidi: isolate; direction: ltr; }
     .ltr-iso { unicode-bidi: isolate; direction: ltr; }
     .item__detail-raw { color: var(--muted); font-size: 11px; }
-    .item__fix { margin-top: 4px; font-size: 11px; color: var(--text-2); line-height: 1.55; }
+    .item__fix { margin-top: 2px; font-size: 11px; color: var(--text-2); line-height: 1.45; }
     .item__fix b { color: var(--accent); font-weight: 700; margin-inline-end: 4px; }
-    .item__where { display: flex; align-items: center; gap: 2px; margin-top: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item__where { display: flex; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .item__title .item__where { margin-inline-start: auto; flex-shrink: 3; min-width: 40px; padding-inline-start: 6px; align-self: center; }
+    .item__where .ltr-iso { overflow: hidden; text-overflow: ellipsis; }
     .group__code { font-size: 10px; font-weight: 700; border: 1px solid; border-radius: 4px; padding: 1px 5px; letter-spacing: .5px; flex-shrink: 0; font-family: var(--mono); }
     .group__code--danger  { color: var(--danger);  background: var(--danger-dim);  border-color: rgba(255,92,64,.3); }
     .group__code--warning { color: var(--warning); background: var(--warning-dim); border-color: rgba(255,205,41,.28); }
@@ -394,6 +404,28 @@
     .verify-card--verified { background: var(--accent-dim); border-color: rgba(33,192,99,.35); }
     .verify-card--none, .verify-card--changed, .verify-card--outdated, .verify-card--failed, .verify-card--error { background: var(--danger-dim); border-color: rgba(255,92,64,.3); }
     .verify-badge { flex-shrink: 0; display: flex; }
+    button.verify-badge { background: none; border: none; padding: 0; cursor: pointer; border-radius: var(--r-sm); }
+    button.verify-badge:hover .verify-badge__img { transform: scale(1.06); }
+    button.verify-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    @media (prefers-reduced-motion: no-preference) { .verify-badge__img { transition: transform .15s; } }
+    .verify-entry { display: flex; flex-direction: column; gap: 0; }
+    .verify-entry.has-log .verify-card { border-end-start-radius: 0; border-end-end-radius: 0; }
+    .verify-card__hist { margin-top: 2px; align-self: flex-start; min-height: 24px; color: var(--text-2); }
+    .verify-card__hist .ico { transition: transform .2s; }
+    .verify-card__hist[aria-expanded="true"] .ico { transform: rotate(180deg); }
+    .vlog { list-style: none; margin: 0; padding: 6px 11px 8px; background: var(--surface); border: 1px solid var(--border-2); border-top: none; border-radius: 0 0 var(--r-md) var(--r-md); display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; }
+    .vlog[hidden] { display: none; }
+    .vlog:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .vlog__row { display: flex; align-items: flex-start; gap: 6px; font-size: 11px; line-height: 1.5; color: var(--text); }
+    .vlog__row .ico { margin-top: 3px; flex-shrink: 0; color: var(--text-2); }
+    .vlog__row--ok .ico { color: var(--accent); }
+    .vlog__row--bad .ico { color: var(--danger); }
+    .vlog__text { flex: 1; min-width: 0; }
+    .vlog__when { color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .vlog__ed { display: block; color: var(--text-2); }
+    .vlog__diff { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; color: var(--text-2); }
+    .vlog__diff li { padding-inline-start: 8px; border-inline-start: 2px solid var(--border-2); overflow-wrap: anywhere; }
+    .vlog__val { font-family: var(--mono); font-size: 11px; color: var(--text); unicode-bidi: isolate; direction: ltr; }
     .verify-badge__img { display: block; object-fit: contain; user-select: none; }
     .verify-card__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
     .verify-card__title { font-weight: 700; font-size: 11.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -422,21 +454,21 @@
        lg 36 · full-width primary   md 32 · inputs and buttons that sit beside them
        sm 26 · small buttons        icon 24 · icon-only buttons (square)              */
     :root { --h-lg: 36px; --h-md: 32px; --h-sm: 26px; --h-icon: 24px; }
-    .btn, .item__resolve, .icon-btn, .tfilter__btn, .rtab, .link-btn { line-height: 1; }
-    .btn { height: var(--h-lg); padding: 0 16px; gap: 6px; transition: background .15s, border-color .15s, color .15s, filter .15s; }
-    .btn--ghost, .btn--danger-ghost { height: var(--h-md); padding: 0 12px; }
-    .btn--small { height: var(--h-sm); padding: 0 10px; gap: 5px; }
+    .btn, .item__resolve, .icon-btn, .tfilter__btn, .rtab, .link-btn { line-height: 1; flex-shrink: 0; }
+    .btn { height: var(--h-lg); min-height: var(--h-lg); padding: 0 16px; gap: 6px; transition: background .15s, border-color .15s, color .15s, filter .15s; }
+    .btn--ghost, .btn--danger-ghost { height: var(--h-md); min-height: var(--h-md); padding: 0 12px; }
+    .btn--small { height: var(--h-sm); min-height: var(--h-sm); padding: 0 10px; gap: 5px; }
     .btn--ghost:hover { background: var(--surface-2); border-color: var(--border-2); color: var(--text); }
     .btn--primary:active:not(:disabled), .btn--ghost:active, .btn--danger-ghost:active:not(:disabled) { filter: brightness(.95); }
     .btn span, .item__resolve span, .link-btn span { display: inline-flex; align-items: center; }
     .input { height: var(--h-md); padding: 0 10px; }
     .token-row, .add-lib-row { align-items: stretch; }
     .token-row .btn, .add-lib-row .btn { height: var(--h-md); padding: 0 12px; }
-    .item__resolve { height: var(--h-sm); padding: 0 9px; gap: 4px; }
+    .item__resolve { height: var(--h-sm); min-height: var(--h-sm); padding: 0 9px; gap: 4px; }
     .item__resolve:hover { background: var(--surface-2); border-color: var(--border-2); color: var(--text); }
     .item__resolve--primary:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
     .item__note-input { height: var(--h-sm); padding: 0 8px; }
-    .icon-btn { width: var(--h-icon); height: var(--h-icon); padding: 0; border: none; background: transparent; color: var(--muted); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: background .15s, color .15s; }
+    .icon-btn { width: var(--h-icon); height: var(--h-icon); min-width: var(--h-icon); min-height: var(--h-icon); padding: 0; border: none; background: transparent; color: var(--muted); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: background .15s, color .15s; }
     .icon-btn:hover { background: var(--surface-2); color: var(--text); }
     .icon-btn--danger:hover { background: var(--danger-dim); color: var(--danger); }
     .modal__close.icon-btn { width: 28px; height: 28px; padding: 0; font-size: 0; }
@@ -694,7 +726,10 @@
             <button class="btn btn--ghost btn--small" id="js-lib-add-btn" style="flex-shrink:0;" data-icon="plus" data-i18n="add">Add</button>
           </div>
           <div class="hint" data-i18n="addLibHint">In Figma, right-click the library file → Copy Link → paste it here.</div>
+          <div class="hint" data-i18n="libsGistHint">Libraries you add here are only on your device. To give them to everyone, copy them into the gist.</div>
+          <button type="button" class="btn btn--ghost btn--small" id="js-lib-gist-btn" data-icon="clipboard" data-i18n="copyLibsGist" style="align-self:flex-start;">Copy for gist</button>
         </div>
+        <div class="hint" id="js-lib-readonly" hidden data-i18n="libAdminOnly">Only admins can add or remove libraries.</div>
         <div class="status" id="js-lib-status" role="status" aria-live="polite"></div>
       </div>
 
@@ -830,7 +865,13 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.9.0", date: "2026-10-17", current: true, changes: [
+      { version: "2.10.0", date: "2026-10-18", current: true, changes: [
+        { type: "new", text: "Frame history: every audit and every change (who, when and what changed) is logged on the frame — open History on the verification card" },
+        { type: "new", text: "Click the layer name in an override (e.g. the icon's Vector) to select that exact layer" },
+        { type: "new", text: "Click the verification badge to select the frame on the canvas" },
+        { type: "fix", text: "Shorter issue rows, clearer group headers in dark mode, buttons never squeezed, wider window opening top-left" },
+      ]},
+      { version: "2.9.0", date: "2026-10-17", current: false, changes: [
         { type: "new", text: "First public release: audit frames against your own design system libraries — no token needed" },
       ]},
     ];
@@ -929,6 +970,12 @@
         warnDeadUser: "Darooghe can't reach Figma right now (shared token expired). Let the design system team know.",
         errLibNoAccess: "The Darooghe Figma account can't open \"{lib}\". Share that library file with it, or turn the library off in Settings.",
         errLibAddNoAccess: "The Darooghe Figma account can't open this file. Share it with that account first.",
+        errNotAdmin: "Only admins can add libraries.", libAdminOnly: "Only admins can add or remove libraries.", libTeam: "Team",
+        copyLibsGist: "Copy for gist", libsCopied: "Copied. Paste it into the guidelines gist (top level, next to \"reviewers\").",
+        libsGistHint: "Libraries you add here are only on your device. To give them to everyone, copy them into the gist.",
+        hist: "History", histAudit_verified: "Audited: verified", histAudit_failed: "Audited: {n} issue(s)", histAudit_empty: "Audited: no components",
+        histChange: "Changed", histChangeUnknown: "Changed (editor unknown)", histEditors: "Edited the file in this window:", selectLayer: "Select layer",
+        dAdd: "Added", dRm: "Removed", dSwap: "Swapped", dVar: "Variant", dReset: "Override reset", dOther: "Layers outside components changed", dMore: "and {n} more change(s)", dNone: "none",
         verification: "Verification", refresh: "Refresh", verifyTitle: "VERIFICATION",
         verifyDevHint: "Select a frame to see whether Darooghe verified it and whether it changed since.",
         verifyNoSelection: "Select a frame on the canvas to see its verification status.",
@@ -1031,6 +1078,12 @@
         warnDeadUser: "داروغه فعلاً به Figma دسترسی ندارد (توکن مشترک منقضی شده است). به تیم دیزاین سیستم اطلاع دهید.",
         errLibNoAccess: "حساب Figma داروغه به «{lib}» دسترسی ندارد. فایل لایبرری را با این حساب به اشتراک بگذارید یا آن را در تنظیمات غیرفعال کنید.",
         errLibAddNoAccess: "حساب Figma داروغه به این فایل دسترسی ندارد. اول فایل را با این حساب به اشتراک بگذارید.",
+        errNotAdmin: "فقط ادمین‌ها می‌توانند لایبرری اضافه کنند.", libAdminOnly: "فقط ادمین‌ها می‌توانند لایبرری اضافه یا حذف کنند.", libTeam: "تیم",
+        copyLibsGist: "کپی برای گیست", libsCopied: "کپی شد. آن را در گیست راهنما (سطح اول، کنار «reviewers») قرار دهید.",
+        libsGistHint: "لایبرری‌هایی که این‌جا اضافه می‌کنید فقط روی دستگاه شما هستند. برای اینکه همه داشته باشند، آن‌ها را در گیست قرار دهید.",
+        hist: "تاریخچه", histAudit_verified: "بررسی شد: تأیید شد", histAudit_failed: "بررسی شد: {n} ایراد", histAudit_empty: "بررسی شد: کامپوننتی پیدا نشد",
+        histChange: "تغییر کرد", histChangeUnknown: "تغییر کرد (ویرایشگر نامشخص)", histEditors: "ویرایشگرهای فایل در این بازه:", selectLayer: "انتخاب لایه",
+        dAdd: "اضافه شد", dRm: "حذف شد", dSwap: "جایگزین شد", dVar: "واریانت", dReset: "اوراید ریست شد", dOther: "لایه‌های خارج از کامپوننت تغییر کرد", dMore: "و {n} تغییر دیگر", dNone: "هیچ",
         verification: "تأیید داروغه", refresh: "به‌روزرسانی", verifyTitle: "تأیید داروغه",
         verifyDevHint: "یک فریم را انتخاب کنید تا ببینید داروغه آن را تأیید کرده و آیا پس از تأیید تغییر کرده است.",
         verifyNoSelection: "برای دیدن وضعیت تأیید، یک فریم را روی کانواس انتخاب کنید.",
@@ -1158,6 +1211,7 @@
       issueFilter  : "all",
       user         : { id: null, name: null, isReviewer: false, isAdmin: false, reviewers: [], reviewersConfigured: false },
       resolvingId  : null,
+      histOpen     : {},
       searchQuery  : "",
       auditData    : null,
       guidelines   : null,
@@ -1232,6 +1286,8 @@
       libRegister     : $("js-lib-register"),
       libRegisterBtn  : $("js-lib-register-btn"),
       libAdd          : $("js-lib-add"),
+      libGistBtn      : $("js-lib-gist-btn"),
+      libReadonly     : $("js-lib-readonly"),
       contactPanel    : $("js-contact-panel"),
       subForm         : $("js-sub-form"),
       subEmail        : $("js-sub-email"),
@@ -1501,6 +1557,7 @@
     dom.tutOverlay.addEventListener("click", function(e) { if (e.target === dom.tutOverlay) { dismissTutorial(); } });
 
     dom.libAddBtn.addEventListener("click", addLibrary);
+    dom.libGistBtn.addEventListener("click", copyLibrariesForGist);
     dom.libUrlInput.addEventListener("keydown", function(e) { if (e.key === "Enter") { addLibrary(); } });
 
     dom.frameSelector.addEventListener("click", function(e) { e.stopPropagation(); toggleDropdown(); });
@@ -1549,13 +1606,19 @@
       } else if (msg.type === "LIBRARIES_LOADED") {
         var defaultLibs = [
                   ];
-        if (msg.libraries && msg.libraries.length > 0) {
-          var defaultKeys = defaultLibs.map(function(l) { return l.key; });
-          var customLibs = msg.libraries.filter(function(l) { return defaultKeys.indexOf(l.key) === -1; });
-          state.libraries = defaultLibs.concat(customLibs);
-        } else {
-          state.libraries = defaultLibs;
-        }
+        // Base = built-in defaults + team libraries from the gist (not removable); saved = this device's toggles + own additions.
+        var saved = msg.libraries || [], savedOn = {};
+        for (var si = 0; si < saved.length; si++) { if (saved[si] && saved[si].key) { savedOn[saved[si].key] = saved[si].enabled !== false; } }
+        var base = [], baseKeys = {};
+        var team = (msg.teamLibraries || []).map(function(l) { return { key: l.key, name: l.name, enabled: true, team: true }; });
+        defaultLibs.concat(team).forEach(function(l) {
+          if (baseKeys[l.key] || (DEFAULT_DS && l.key === DEFAULT_DS.key)) { return; }
+          baseKeys[l.key] = true;
+          base.push({ key: l.key, name: l.name, enabled: l.key in savedOn ? savedOn[l.key] : true, team: true });
+        });
+        var custom = saved.filter(function(l) { return l && l.key && !baseKeys[l.key] && !(DEFAULT_DS && l.key === DEFAULT_DS.key); })
+                          .map(function(l) { return { key: l.key, name: l.name, enabled: l.enabled !== false }; });
+        state.libraries = base.concat(custom);
         updateDsChip();
         renderLibList();
       }
@@ -2063,7 +2126,7 @@
       state.user = on ? Object.assign({}, real, { isReviewer: false, isAdmin: false }) : real;
       dom.viewAsBar.hidden = !on;
       dom.viewAsBtn.hidden = !real.isAdmin || on || EDITION === "public";
-      renderReviewerInfo(); renderTokenStatus();
+      renderReviewerInfo(); renderTokenStatus(); renderLibList();
       if (state.auditData) { renderList(); }
     }
     function setViewAsUser(on) { state.viewAsUser = on; applyUserView(); }
@@ -2207,6 +2270,15 @@
       return b;
     }
 
+    // The exact layer inside the instance that carries the override (e.g. the leading icon's vector).
+    function layerButton(name, nodeId) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "item__detail-layer"; b.textContent = name;
+      b.title = t("selectLayer");
+      b.setAttribute("aria-label", t("selectLayer") + ": " + name);
+      b.addEventListener("click", function(e) { e.stopPropagation(); postToPlugin("HIGHLIGHT_NODE", { nodeId: nodeId }); });
+      return b;
+    }
+
     function addDiv(parent, cls, text) {
       var d = document.createElement("div"); d.className = cls;
       if (text !== undefined) { d.textContent = text; }
@@ -2226,7 +2298,9 @@
         var o = overrides[i];
         if (!o || typeof o !== "object") { continue; }
         var layer = o.node || "—";
-        if (!byLayer[layer]) { byLayer[layer] = { layer: layer, items: [] }; out.push(byLayer[layer]); }
+        var gk = (o.nodeId || "") + "|" + layer;
+        if (!byLayer[gk]) { byLayer[gk] = { layer: layer, nodeId: o.nodeId || null, items: [] }; out.push(byLayer[gk]); }
+        layer = gk;
         byLayer[layer].items.push({ field: o.field, value: o.value || "", raw: (o.field === "Fill Color" || o.field === "Stroke Color" || o.field === "Opacity") });
       }
       return out;
@@ -2262,7 +2336,15 @@
       if (item.name && item.name !== compName && item.name !== item.mainComponentName) {
         addSpan(title, "item__layer", t("layerLabel") + " “" + item.name + "”");
       }
-      if (item.variantName) { addDiv(bodyEl, "item__variant", item.variantName); }
+      // Where: frame path, at the end of the title row (saves a line)
+      if (item.parent && item.parent.name) {
+        var where = addSpan(title, "item__where", "");
+        where.appendChild(icoEl("frame", "sm")); where.appendChild(document.createTextNode(" "));
+        addSpan(where, "ltr-iso", item.path || item.parent.name);
+        where.title = t("inLabel") + " " + (item.path || item.parent.name);
+      }
+      // Component properties only matter when they are the problem (overrides)
+      if (key === "ds_overridden" && item.variantName) { addDiv(bodyEl, "item__variant", item.variantName); }
 
       // Exactly what changed (overrides): layer › property value
       if (key === "ds_overridden" && item.overrides && item.overrides.length) {
@@ -2270,7 +2352,14 @@
         var groups = groupOverrides(item.overrides);
         for (var g = 0; g < groups.length; g++) {
           var line = addDiv(details, "item__detail");
-          var lay = addSpan(line, "item__detail-layer", groups[g].layer); lay.dir = "auto";
+          var lay;
+          if (groups[g].nodeId) {
+            lay = layerButton(groups[g].layer, groups[g].nodeId);
+            line.appendChild(lay);
+          } else {
+            lay = addSpan(line, "item__detail-layer", groups[g].layer);
+          }
+          lay.dir = "auto";
           line.appendChild(document.createTextNode(" › "));
           for (var k = 0; k < groups[g].items.length; k++) {
             var it = groups[g].items[k];
@@ -2286,13 +2375,6 @@
       var fix = addDiv(bodyEl, "item__fix");
       var b = document.createElement("b"); b.appendChild(document.createTextNode(t("fixLabel"))); fix.appendChild(b);
       fix.appendChild(document.createTextNode(meta.fixKey ? t(meta.fixKey) : modFixText(item.overrides)));
-
-      // Where
-      if (item.parent && item.parent.name) {
-        var where = addDiv(bodyEl, "item__where");
-        where.appendChild(icoEl("frame", "sm")); where.appendChild(document.createTextNode(" " + t("inLabel") + " "));
-        addSpan(where, "ltr-iso", item.path || item.parent.name);
-      }
 
       if (item.staleResolution) {
         addDiv(bodyEl, "item__stale", t("staleResolution").replace("{name}", item.staleResolution.by || "—"));
@@ -2382,8 +2464,25 @@
     function hideTokenStatus() { dom.tokenStatus.className = "status"; }
 
     // ── Libraries ─────────────────────────────────────────────
+    // Team build: only admins add or remove libraries; everyone can switch them on or off.
+    function canManageLibs() { return EDITION === "public" || !!(state.user && state.user.isAdmin); }
+
+    function applyLibAccess() {
+      if (EDITION === "public") { return; }
+      var admin = canManageLibs();
+      dom.libAdd.hidden = !admin;
+      dom.libReadonly.hidden = admin;
+    }
+
+    function copyLibrariesForGist() {
+      var list = state.libraries.map(function(l) { return { key: l.key, name: l.name }; });
+      var ok = copyText('"libraries": ' + JSON.stringify(list, null, 2));
+      showLibStatus(ok ? "success" : "error", ok ? t("libsCopied") : t("failed"));
+    }
+
     function renderLibList() {
       if (EDITION === "public") { renderPublicLibList(); return; }
+      applyLibAccess();
       // Columns: [lead 16] [name] [tag] [action 24]. The default library gets a lock and an empty action cell.
       dom.libList.innerHTML = "";
       var defaultEl = document.createElement("div"); defaultEl.className = "lib-row";
@@ -2404,9 +2503,14 @@
           var nameEl = document.createElement("span"); nameEl.className = "lib-row__name" + (lib.enabled ? "" : " is-off"); nameEl.appendChild(bdi(lib.name));
           var tag = document.createElement("span"); tag.className = "lib-row__tag"; tag.textContent = lib.enabled ? t("on") : t("off");
           checkbox.addEventListener("change", function() { tag.textContent = checkbox.checked ? t("on") : t("off"); });
-          var removeBtn = document.createElement("button"); removeBtn.className = "icon-btn icon-btn--danger lib-row__action"; removeBtn.innerHTML = ico("x", "sm"); removeBtn.title = t("removeLib"); removeBtn.setAttribute("aria-label", t("removeLib"));
-          removeBtn.addEventListener("click", function() { state.libraries.splice(idx, 1); saveLibraries(); renderLibList(); updateDsChip(); });
-          el.appendChild(lead); el.appendChild(nameEl); el.appendChild(tag); el.appendChild(removeBtn);
+          var action;
+          if (canManageLibs() && !lib.team) {
+            action = document.createElement("button"); action.type = "button"; action.className = "icon-btn icon-btn--danger lib-row__action"; action.innerHTML = ico("x", "sm"); action.title = t("removeLib"); action.setAttribute("aria-label", t("removeLib") + ": " + lib.name);
+            action.addEventListener("click", function() { state.libraries.splice(idx, 1); saveLibraries(); renderLibList(); updateDsChip(); });
+          } else {
+            action = document.createElement("span"); action.className = "lib-row__action";
+          }
+          el.appendChild(lead); el.appendChild(nameEl); el.appendChild(tag); el.appendChild(action);
           dom.libList.appendChild(el);
         })(state.libraries[i], i);
       }
@@ -2471,7 +2575,7 @@
     function handleLibraryInfo(msg) {
       dom.libAddBtn.disabled = false; setBtnLabel(dom.libAddBtn, t("add"));
       if (!msg.success) {
-        var txt = msg.code === "no_access" ? t("errLibAddNoAccess") : (msg.code ? errorText({ code: "token_" + msg.code }) : t("failed") + (msg.error || ""));
+        var txt = msg.code === "no_access" ? t("errLibAddNoAccess") : msg.code === "not_admin" ? t("errNotAdmin") : (msg.code ? errorText({ code: "token_" + msg.code }) : t("failed") + (msg.error || ""));
         showLibStatus("error", txt);
         return;
       }
@@ -2614,9 +2718,17 @@
       var card = document.createElement("div");
       card.className = "verify-card verify-card--" + st + (opts.clickable ? " is-clickable" : "");
 
-      var badge = document.createElement("span");
+      // Badge: on its own (not inside a clickable card) it is a button that selects the frame.
+      var badgeIsBtn = !opts.clickable && !!item.id;
+      var badge = document.createElement(badgeIsBtn ? "button" : "span");
       badge.className = "verify-badge verify-badge--" + st;
       badge.appendChild(badgeImg(st, opts.fromAudit ? 28 : 44));
+      if (badgeIsBtn) {
+        badge.type = "button";
+        badge.title = t("showOnCanvas");
+        badge.setAttribute("aria-label", t("showOnCanvas") + ": " + (item.name || "") + " (" + t("vs_" + st) + ")");
+        badge.addEventListener("click", function() { postToPlugin("HIGHLIGHT_NODE", { nodeId: item.id }); });
+      }
 
       var body  = document.createElement("div"); body.className = "verify-card__body";
       var title = document.createElement("div"); title.className = "verify-card__title";
@@ -2654,7 +2766,89 @@
         card.addEventListener("click", go);
         makeActivatable(card, go, t("vs_" + st) + " — " + (item.name || "") + ". " + t("showOnCanvas"));
       }
-      return card;
+
+      var log = (!opts.fromAudit && item.log) ? item.log : [];
+      if (!log.length) { return card; }
+      var entry = document.createElement("div"); entry.className = "verify-entry";
+      var listId = "vlog-" + String(item.id).replace(/[^A-Za-z0-9]/g, "-") + (opts.dev ? "-d" : "");
+      var open = !!state.histOpen[item.id];
+      var toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "link-btn verify-card__hist";
+      toggle.setAttribute("aria-expanded", open ? "true" : "false"); toggle.setAttribute("aria-controls", listId);
+      toggle.appendChild(icoEl("history", "sm"));
+      toggle.appendChild(document.createTextNode(" " + t("hist") + " (" + num(log.length) + ") "));
+      toggle.appendChild(icoEl("chevronDown", "sm"));
+      body.appendChild(toggle);
+      var ul = buildLogList(log); ul.id = listId; ul.hidden = !open;
+      entry.classList.toggle("has-log", open);
+      toggle.addEventListener("click", function() {
+        var nowOpen = ul.hidden;
+        ul.hidden = !nowOpen; state.histOpen[item.id] = nowOpen;
+        toggle.setAttribute("aria-expanded", nowOpen ? "true" : "false");
+        entry.classList.toggle("has-log", nowOpen);
+      });
+      entry.appendChild(card); entry.appendChild(ul);
+      return entry;
+    }
+
+    // What changed in one log entry: one short line per difference (technical values stay LTR).
+    function buildDiffList(d) {
+      var ul = document.createElement("ul"); ul.className = "vlog__diff";
+      var val = function(parent, v) { var c = document.createElement("code"); c.className = "vlog__val"; c.textContent = (v === null || v === undefined || v === "") ? t("dNone") : v; parent.appendChild(c); };
+      var arrow = function(parent) { parent.appendChild(document.createTextNode(state.lang === "fa" ? " ← " : " → ")); };
+      for (var i = 0; i < d.length; i++) {
+        var x = d[i], li = document.createElement("li");
+        if (x.t === "add" || x.t === "rm") {
+          li.appendChild(document.createTextNode((x.t === "add" ? "+ " + t("dAdd") : "− " + t("dRm")) + ": "));
+          li.appendChild(bdi(x.c || x.n || ""));
+        } else if (x.t === "swap" || x.t === "var") {
+          li.appendChild(bdi(x.n || "")); li.appendChild(document.createTextNode(" · " + t(x.t === "swap" ? "dSwap" : "dVar") + ": "));
+          val(li, x.from); arrow(li); val(li, x.to);
+        } else if (x.t === "ov") {
+          li.appendChild(bdi((x.n || "") + " › " + (x.f || ""))); li.appendChild(document.createTextNode(": "));
+          val(li, x.from); arrow(li); val(li, x.to);
+        } else if (x.t === "reset") {
+          li.appendChild(bdi((x.n || "") + " › " + (x.f || ""))); li.appendChild(document.createTextNode(": " + t("dReset") + " "));
+          val(li, x.from);
+        } else if (x.t === "more") {
+          li.textContent = t("dMore").replace("{n}", num(x.c || 0));
+        } else {
+          li.textContent = t("dOther");
+        }
+        ul.appendChild(li);
+      }
+      return ul;
+    }
+
+    // Frame log, newest first. Each row: icon + what + who · when (status never by colour alone).
+    function buildLogList(log) {
+      var ul = document.createElement("ul"); ul.className = "vlog"; ul.setAttribute("aria-label", t("hist"));
+      ul.tabIndex = 0; // scrollable: reachable by keyboard
+      for (var i = log.length - 1; i >= 0; i--) {
+        var e = log[i] || {};
+        var li = document.createElement("li"), txt, icon, cls = "";
+        if (e.k === "a") {
+          txt = t("histAudit_" + (e.r || "failed")).replace("{n}", num(e.n || 0));
+          icon = e.r === "verified" ? "checkCircle" : "alert"; cls = e.r === "verified" ? "vlog__row--ok" : "vlog__row--bad";
+        } else {
+          txt = e.by ? t("histChange") : t("histChangeUnknown"); icon = "pencil";
+        }
+        li.className = "vlog__row " + cls;
+        li.appendChild(icoEl(icon, "sm"));
+        var tx = document.createElement("span"); tx.className = "vlog__text";
+        tx.appendChild(document.createTextNode(txt));
+        if (e.by) { tx.appendChild(document.createTextNode(" · " + t("vBy") + " ")); tx.appendChild(bdi(e.by)); }
+        if (e.d && e.d.length) { tx.appendChild(buildDiffList(e.d)); }
+        if (e.ed && e.ed.length) {
+          var ed = document.createElement("span"); ed.className = "vlog__ed";
+          ed.appendChild(document.createTextNode(t("histEditors") + " "));
+          ed.appendChild(bdi(e.ed.join(state.lang === "fa" ? "، " : ", ")));
+          tx.appendChild(ed);
+        }
+        var when = document.createElement("span"); when.className = "vlog__when"; when.textContent = formatWhen(e.at);
+        li.appendChild(tx); li.appendChild(when);
+        ul.appendChild(li);
+      }
+      return ul;
     }
 
     function renderVerifyList(container, items, opts) {
@@ -2673,7 +2867,7 @@
 
     function renderVerification() {
       renderVerifyList(dom.verifyList, state.verifyItems, { allowActions: !isDev() });
-      renderVerifyList(dom.verifyListDev, state.verifyItems, { allowActions: false });
+      renderVerifyList(dom.verifyListDev, state.verifyItems, { allowActions: false, dev: true });
     }
 
     function handleVerificationStatus(msg) {

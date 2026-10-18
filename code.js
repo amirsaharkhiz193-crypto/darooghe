@@ -2,7 +2,7 @@
 
 var VERSION = {
   major : 2,
-  minor : 9,
+  minor : 10,
   patch : 0,
   label : "",
 };
@@ -124,26 +124,28 @@ function loadTokens() {
 }
 
 // ── Boot ─────────────────────────────────────────────────────
-// Opens at the minimum size, pinned to the top-right corner of the visible canvas.
-// After that the user moves/resizes it freely (drag handle → RESIZE_FRAME).
-var UI_MIN_W  = 480;
-var UI_MIN_H  = 520;
-var UI_MARGIN = 8;   // screen px from the canvas edges
+// Opens at the default size, pinned to the top-left corner of the visible canvas.
+// After that the user moves/resizes it freely (drag handle → RESIZE_FRAME, never below the minimum).
+var UI_MIN_W     = 480;
+var UI_MIN_H     = 520;
+var UI_DEFAULT_W = 600;  // wide enough that most rows stay on one line
+var UI_DEFAULT_H = 560;
+var UI_MARGIN    = 8;    // screen px from the canvas edges
 
-function topRightPosition(w) {
+function topLeftPosition() {
   try {
     var b = figma.viewport.bounds;          // visible canvas area, canvas coordinates
     var z = figma.viewport.zoom || 1;       // screen px per canvas unit
-    return { x: b.x + b.width - (w + UI_MARGIN) / z, y: b.y + UI_MARGIN / z };
+    return { x: b.x + UI_MARGIN / z, y: b.y + UI_MARGIN / z };
   } catch (e) { return null; }
 }
 
 (function() {
-  var opts = { width: UI_MIN_W, height: UI_MIN_H, title: "DAROOGHE" };
-  var pos = topRightPosition(UI_MIN_W);
+  var opts = { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE" };
+  var pos = topLeftPosition();
   if (pos) { opts.position = pos; }
   try { figma.showUI(__html__, opts); }
-  catch (e) { figma.showUI(__html__, { width: UI_MIN_W, height: UI_MIN_H, title: "DAROOGHE" }); }
+  catch (e) { figma.showUI(__html__, { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE" }); }
 })();
 
 // ── Selection Change ──────────────────────────────────────────
@@ -200,7 +202,7 @@ function handleInit() {
     if (EDITION === "public") {
       loadRegisteredLibraries().then(function(list) { send("LIBRARIES_LOADED", { libraries: libSummary(list) }); });
     } else {
-      send("LIBRARIES_LOADED", { libraries: results[1] || [] });
+      send("LIBRARIES_LOADED", { libraries: results[1] || [], teamLibraries: teamLibraries(guidelines) });
     }
   }).catch(function() {
     send("GUIDELINES_LOADED", { guidelines: null });
@@ -397,8 +399,27 @@ function handleSaveSettings(msg) {
   });
 }
 
-// Settings → Add library: read the file name with the shared token (the token never reaches the UI).
+// Team libraries for everyone, managed by admins in the guidelines gist:
+//   "libraries": [ { "key": "<file key>", "name": "…" } ]
+function teamLibraries(guidelines) {
+  var out = [];
+  var list = guidelines && guidelines.libraries;
+  if (!list || !list.length) { return out; }
+  for (var i = 0; i < list.length; i++) {
+    var l = list[i];
+    if (l && typeof l.key === "string" && /^[A-Za-z0-9]+$/.test(l.key)) {
+      out.push({ key: l.key, name: String(l.name || l.key).slice(0, 120) });
+    }
+  }
+  return out;
+}
+
+// Settings → Add library (admins only): read the file name with the shared token (the token never reaches the UI).
 function handleFetchLibrary(msg) {
+  if (EDITION !== "public" && !isAdmin()) {
+    send("LIBRARY_INFO", { success: false, fileKey: msg.fileKey, code: "not_admin" });
+    return;
+  }
   var ts = tokenStatus();
   if (ts.state === "missing" || ts.state === "expired" || ts.state === "invalid") {
     send("LIBRARY_INFO", { success: false, fileKey: msg.fileKey, code: ts.state });
@@ -818,8 +839,9 @@ function detectOverrides(instance) {
       var node     = index[ov.id] || null;
       var nodeName = node ? node.name : ov.id;
       var has = function(f) { return changed.indexOf(f) > -1; };
+      var nodeId   = node ? node.id : null;
       var add = function(type, field, value) {
-        issues.push({ type: type, field: field, node: nodeName, value: value || "" });
+        issues.push({ type: type, field: field, node: nodeName, nodeId: nodeId, value: value || "" });
       };
 
       if (has("fontName"))       { add("typography", "Font Family",     node ? fmtFontName(safeGet(node, "fontName")) : ""); }
@@ -1197,15 +1219,18 @@ function finalizeVerification(frames, instanceCounts, issueCounts, libKeys, reso
     if (issues === 0 && count > 0) {
       return writeVerification(frame, { libs: libKeys, instances: count, resolved: resolvedN }).then(function(rec) {
         out.push({ id: frame.id, name: frame.name, state: "verified", instances: count, issues: 0, record: rec });
-        return next();
+        return logAudit(frame, "verified", 0, count, resolvedN, rec.fp).then(next);
       }, function(err) {
         out.push({ id: frame.id, name: frame.name, state: "error", instances: count, issues: 0, error: err.message });
         return next();
       });
     }
     clearVerification(frame);
-    out.push({ id: frame.id, name: frame.name, state: count === 0 ? "empty" : "failed", instances: count, issues: issues });
-    return next();
+    var st = count === 0 ? "empty" : "failed";
+    out.push({ id: frame.id, name: frame.name, state: st, instances: count, issues: issues });
+    return computeFingerprint(frame).then(function(fp) {
+      return logAudit(frame, st, issues, count, resolvedN, fp);
+    }, function() { return null; }).then(next);
   }
   return next();
 }
@@ -1228,24 +1253,297 @@ function canSetDevStatus(node) {
 function getVerificationState(frame) {
   var base = { id: frame.id, name: frame.name, devStatus: readDevStatus(frame) };
   var rec = readVerification(frame);
+  var log = readLog(frame);
+  var withLog = function(fp) {
+    // A logged frame whose fingerprint moved since the last entry changed without anyone logging it.
+    if (fp && log.length) { detectChange(frame, log, fp); }
+    base.log = readLog(frame);
+    return base;
+  };
   if (!rec) {
     base.state = "none";
     base.canMarkReady = false;
-    return Promise.resolve(base);
+    if (!log.length) { base.log = []; return Promise.resolve(base); }
+    return computeFingerprint(frame).then(withLog);
   }
   if (rec.fpv !== FP_VERSION) {
     base.record = rec;
     base.state = "outdated";
     base.canMarkReady = false;
+    base.log = log;
     return Promise.resolve(base);
   }
   return computeFingerprint(frame).then(function(fp) {
     base.record = rec;
     base.state = (fp === rec.fp) ? "verified" : "changed";
     base.canMarkReady = base.state === "verified" && canSetDevStatus(frame);
-    return base;
+    return withLog(fp);
   });
 }
+
+// ── Frame log (2.10.0) ────────────────────────────────────────
+// Every audited frame keeps a short history in shared plugin data, so everyone sees the same log:
+//   { k: "a", at, by, uid, r: "verified"|"failed"|"empty", n: issues, i: instances, res, fp }   audit
+//   { k: "c", at, by, uid, src: "p"|"d", from, fp, ed: [names] }                                change
+// src "p" = edited while the editor had Darooghe open (exact name); "d" = detected later (no name;
+// the team build adds the people who edited the file in that window, from Figma's version history).
+var LOG_KEY          = "log";
+var LOG_MAX          = 50;
+var LOG_MERGE_MS     = 30 * 60 * 1000;   // consecutive changes by the same person merge into one entry
+var REMOTE_QUIET_MS  = 8000;             // give a remote editor's own plugin time to log their change
+
+function readLog(node) {
+  try {
+    var raw = node.getSharedPluginData(VERIFY_NS, LOG_KEY);
+    var arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch(e) { return []; }
+}
+
+function writeLog(node, log) {
+  if (isDevMode()) { return; }
+  try {
+    if (log.length > LOG_MAX) { log = log.slice(log.length - LOG_MAX); }
+    node.setSharedPluginData(VERIFY_NS, LOG_KEY, JSON.stringify(log));
+  } catch(e) {}
+}
+
+function me() {
+  try {
+    var u = figma.currentUser;
+    return u ? { name: u.name || null, id: u.id || null } : { name: null, id: null };
+  } catch(e) { return { name: null, id: null }; }
+}
+
+// What changed: a small snapshot of the frame's instances (component, variant, override values) is kept
+// next to the log ("snap"); a change entry stores the diff against it (d: [...], max SNAP_DIFF_MAX).
+var SNAP_KEY       = "snap";
+var SNAP_MAX_INST  = 400;
+var SNAP_DIFF_MAX  = 12;
+
+function readSnap(node) {
+  try { var raw = node.getSharedPluginData(VERIFY_NS, SNAP_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+function writeSnap(node, snap) {
+  if (isDevMode() || !snap) { return; }
+  try { node.setSharedPluginData(VERIFY_NS, SNAP_KEY, JSON.stringify(snap)); } catch(e) {}
+}
+
+// { v, inst: { id: [layerName, component, variant, key, { "layer · field": value }] }, cut }
+function snapshotFrame(frame) {
+  var list = [];
+  try { collectInstances(frame, list); } catch(e) { list = []; }
+  var cut = list.length > SNAP_MAX_INST;
+  if (cut) { list = list.slice(0, SNAP_MAX_INST); }
+  var inst = {};
+  return Promise.all(list.map(function(n) {
+    return n.getMainComponentAsync().then(function(main) {
+      var names = componentNames(main);
+      var ovs = {};
+      var o = detectOverrides(n);
+      for (var i = 0; i < o.length; i++) {
+        if (SIG_SKIP_FIELDS[o[i].field]) { continue; }
+        ovs[o[i].node + " · " + o[i].field] = o[i].value || "";
+      }
+      inst[n.id] = [n.name, names.name, names.variant, main ? main.key : null, ovs];
+    }, function() { inst[n.id] = [n.name, null, null, null, {}]; });
+  })).then(function() { return { v: 1, inst: inst, cut: cut }; });
+}
+
+// Differences between two snapshots, readable: added/removed instances, swaps/variant changes, override values.
+function diffSnap(a, b) {
+  var out = [];
+  if (!a || !b) { return out; }
+  var A = a.inst || {}, B = b.inst || {}, id, k;
+  for (id in B) {
+    var nb = B[id], na = A[id];
+    if (!na) { out.push({ t: "add", n: nb[0], c: nb[1] }); continue; }
+    if (na[3] !== nb[3]) {
+      if (na[1] === nb[1]) { out.push({ t: "var", n: nb[0], c: nb[1], from: na[2], to: nb[2] }); }
+      else { out.push({ t: "swap", n: nb[0], from: na[1], to: nb[1] }); }
+    }
+    var oa = na[4] || {}, ob = nb[4] || {};
+    for (k in ob) { if (oa[k] !== ob[k]) { out.push({ t: "ov", n: nb[0], f: k, from: k in oa ? oa[k] : null, to: ob[k] }); } }
+    for (k in oa) { if (!(k in ob)) { out.push({ t: "reset", n: nb[0], f: k, from: oa[k] }); } }
+  }
+  for (id in A) { if (!B[id]) { out.push({ t: "rm", n: A[id][0], c: A[id][1] }); } }
+  return out;
+}
+
+function packDiff(d) {
+  if (!d.length) { return [{ t: "other" }]; }      // fingerprint moved outside instances (loose layers, styles…)
+  if (d.length <= SNAP_DIFF_MAX) { return d; }
+  var keep = d.slice(0, SNAP_DIFF_MAX);
+  keep.push({ t: "more", c: d.length - SNAP_DIFF_MAX });
+  return keep;
+}
+
+// Snapshot now, diff against the stored one, store the new one. Resolves with the packed diff.
+function snapAndDiff(frame) {
+  var prev = readSnap(frame);
+  return snapshotFrame(frame).then(function(cur) {
+    writeSnap(frame, cur);
+    return prev ? packDiff(diffSnap(prev, cur)) : null;
+  }, function() { return null; });
+}
+
+function mergeDiff(oldD, newD) {
+  if (!newD) { return oldD || null; }
+  if (!oldD) { return newD; }
+  var all = oldD.filter(function(x) { return x.t !== "other" && x.t !== "more"; })
+                .concat(newD.filter(function(x) { return x.t !== "other" && x.t !== "more"; }));
+  // Same layer + property edited twice → one line from the first value to the last.
+  var out = [], seen = {};
+  for (var i = 0; i < all.length; i++) {
+    var x = all[i], key = (x.t === "ov" || x.t === "reset") ? "o|" + x.n + "|" + x.f : null;
+    if (key && seen[key] !== undefined) {
+      var y = out[seen[key]];
+      y.t = x.t === "reset" ? (y.from === null ? "noop" : "reset") : "ov";
+      y.to = x.to;
+      if (y.t === "ov" && y.from === y.to) { y.t = "noop"; }
+      continue;
+    }
+    if (key) { seen[key] = out.length; }
+    out.push(x);
+  }
+  out = out.filter(function(x) { return x.t !== "noop"; });
+  return out.length ? packDiff(out) : oldD;
+}
+
+function lastFp(log) {
+  for (var i = log.length - 1; i >= 0; i--) { if (log[i] && log[i].fp) { return log[i].fp; } }
+  return null;
+}
+
+// Adds a change entry, or extends the previous one when the same person (or "unknown") keeps editing.
+function appendChange(node, entry) {
+  var log = readLog(node);
+  var last = log.length ? log[log.length - 1] : null;
+  if (last && last.k === "c" && last.src === entry.src && (last.uid || null) === (entry.uid || null) &&
+      Date.parse(entry.at) - Date.parse(last.at) < LOG_MERGE_MS) {
+    last.at = entry.at; last.fp = entry.fp;
+    last.d = mergeDiff(last.d, entry.d);
+  } else {
+    log.push(entry);
+  }
+  writeLog(node, log);
+  return entry;
+}
+
+function logAudit(frame, result, issues, instances, resolved, fp) {
+  if (isDevMode()) { return Promise.resolve(); }
+  var log = readLog(frame);
+  var prev = lastFp(log);
+  var now = new Date().toISOString();
+  var changed = prev && fp && prev !== fp && !(log.length && log[log.length - 1].k === "c" && log[log.length - 1].fp === fp);
+  return snapAndDiff(frame).then(function(d) {
+    return changed ? recordDetectedChange(frame, log, fp, now, d) : null;
+  }).then(function() {
+    var who = me();
+    var l2 = readLog(frame);
+    l2.push({ k: "a", at: now, by: who.name, uid: who.id, r: result, n: issues || 0, i: instances || 0, res: resolved || 0, fp: fp || null });
+    writeLog(frame, l2);
+  });
+}
+
+function lastEntryTime(log) {
+  return log.length ? log[log.length - 1].at : null;
+}
+
+function recordDetectedChange(frame, log, fp, now, d) {
+  var from = lastEntryTime(log);
+  var entry = appendChange(frame, { k: "c", at: now || new Date().toISOString(), by: null, uid: null, src: "d", from: from, fp: fp, d: d || null });
+  return fileEditorsBetween(from, entry.at).then(function(names) {
+    if (!names || !names.length) { return; }
+    var l = readLog(frame);
+    for (var i = l.length - 1; i >= 0; i--) {
+      if (l[i].k === "c" && l[i].src === "d" && l[i].fp === fp) {
+        var ed = l[i].ed || [];
+        for (var j = 0; j < names.length; j++) { if (ed.indexOf(names[j]) < 0) { ed.push(names[j]); } }
+        l[i].ed = ed.slice(0, 8);
+        writeLog(frame, l);
+        break;
+      }
+    }
+  }, function() {});
+}
+
+// Change noticed while checking the selection (someone edited without Darooghe open).
+function detectChange(frame, log, fp) {
+  if (isDevMode() || lastFp(log) === fp) { return; }
+  if (localDirty[frame.id]) { return; }                                  // our own edit: trackLocalChanges logs it by name
+  var r = remoteDirty[frame.id];
+  if (r && Date.now() - r < REMOTE_QUIET_MS) { scheduleVerifyCheck(REMOTE_QUIET_MS); return; }
+  if (detecting[frame.id]) { return; }
+  detecting[frame.id] = true;
+  snapAndDiff(frame).then(function(d) {
+    if (lastFp(readLog(frame)) !== fp) { return recordDetectedChange(frame, readLog(frame), fp, null, d); }
+  }).then(function() { delete detecting[frame.id]; }, function() { delete detecting[frame.id]; });
+}
+
+// Edits made here while the plugin is open: logged with the current user's name.
+var localDirty   = {};
+var detecting    = {};
+var remoteDirty  = {};
+var trackTimer   = null;
+
+function topFrameOf(node) {
+  var cur = node, top = null;
+  while (cur && cur.type !== "PAGE" && cur.type !== "DOCUMENT") {
+    if (cur.parent && (cur.parent.type === "PAGE" || cur.parent.type === "SECTION") && isFrameLike(cur)) { top = cur; }
+    cur = cur.parent;
+  }
+  return top;
+}
+
+var META_PROPS = { pluginData: true, sharedPluginData: true, relaunchData: true, devStatus: true };
+function onlyMeta(props) {
+  for (var i = 0; i < props.length; i++) { if (!META_PROPS[props[i]]) { return false; } }
+  return true;
+}
+
+function onNodeChanges(event) {
+  if (isDevMode() || !event || !event.nodeChanges) { return; }
+  var changes = event.nodeChanges;
+  for (var i = 0; i < changes.length && i < 200; i++) {
+    var c = changes[i];
+    if (c.type === "PROPERTY_CHANGE" && c.properties && onlyMeta(c.properties)) { continue; }
+    var n = c.node;
+    if (!n || n.removed) { continue; }
+    var top = null;
+    try { top = topFrameOf(n); } catch(e) { top = null; }
+    if (!top) { continue; }
+    if (c.origin === "REMOTE") { remoteDirty[top.id] = Date.now(); }
+    else { localDirty[top.id] = true; }
+  }
+  if (trackTimer) { clearTimeout(trackTimer); }
+  trackTimer = setTimeout(trackLocalChanges, 1500);
+}
+
+function trackLocalChanges() {
+  trackTimer = null;
+  var ids = Object.keys(localDirty);
+  localDirty = {};
+  ids.forEach(function(id) {
+    getNodeSafely(id).then(function(frame) {
+      if (!frame || frame.removed) { return; }
+      var log = readLog(frame);
+      if (!log.length) { return; }                       // only frames that were audited at least once
+      return computeFingerprint(frame).then(function(fp) {
+        if (fp === lastFp(log)) { return; }
+        return snapAndDiff(frame).then(function(d) {
+          var who = me();
+          appendChange(frame, { k: "c", at: new Date().toISOString(), by: who.name, uid: who.id, src: "p", fp: fp, d: d });
+          scheduleVerifyCheck(0);
+        });
+      });
+    }).catch(function() {});
+  });
+}
+
+// Version history (team build): who saved versions of this file between two moments.
+// File level, not frame level — shown as "people who edited the file in this window".
+function fileEditorsBetween() { return Promise.resolve([]); }
 
 function verifyTargetsFromSelection() {
   var sel = figma.currentPage.selection;
@@ -1299,7 +1597,7 @@ function sendVerificationStatus() {
 }
 
 var listenedPage = null;
-function onPageNodeChange() { scheduleVerifyCheck(600); }
+function onPageNodeChange(event) { onNodeChanges(event); scheduleVerifyCheck(600); }
 function attachPageListener() {
   try { if (listenedPage) { listenedPage.off("nodechange", onPageNodeChange); } } catch(e) {}
   listenedPage = figma.currentPage;
