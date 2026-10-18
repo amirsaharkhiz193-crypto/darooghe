@@ -1,0 +1,26 @@
+{
+  "name": "Darooghe — Design System Audit",
+  "id": "darooghe-public",
+  "api": "1.0.0",
+  "documentAccess": "dynamic-page",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": [
+    "figma",
+    "dev"
+  ],
+  "capabilities": [
+    "inspect"
+  ],
+  "permissions": [
+    "currentuser"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://formspree.io",
+      "https://fonts.googleapis.com",
+      "https://fonts.gstatic.com"
+    ],
+    "reasoning": "Formspree receives the optional, opt-in newsletter sign-up from Settings. Google Fonts serves the UI font. Audits run fully inside Figma; no design data leaves the file."
+  }
+}
