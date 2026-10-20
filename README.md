@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.10.0** · [Figma Community](#) · Free
+**Version 2.10.1** · [Figma Community](#) · Free
 
 ---
 

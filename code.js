@@ -3,7 +3,7 @@
 var VERSION = {
   major : 2,
   minor : 10,
-  patch : 0,
+  patch : 1,
   label : "",
 };
 
@@ -476,6 +476,10 @@ function handleRunAudit(msg) {
     libsPromise = Promise.all(fetchPromises);
   }
 
+  // Library file keys that count as the design system (for classifying remote components).
+  var dsFileNames = {};
+  for (var dl = 0; dl < activeLibs.length; dl++) { dsFileNames[activeLibs[dl].key] = activeLibs[dl].name; }
+
   libsPromise.then(function(results) {
     var dsKeys        = {};
     var dsNames       = {};
@@ -599,19 +603,35 @@ function handleRunAudit(msg) {
           }
 
           var overrides = detectOverrides(instance);
-          var issue = null;
 
-          if (isUnpublishedComponent(main)) {
-            issue = buildInvalidItem(instance, "unpublished", main, overrides);
-          } else if (dsKeys[main.key]) {
+          // Where does this component really come from? Remote keys not in the DS list are looked up
+          // (team build): another library → EXT with its file name; a DS file → DS after all;
+          // no longer published (old/deleted version) → OLD.
+          var classP;
+          if (isUnpublishedComponent(main))  { classP = Promise.resolve({ reason: "unpublished" }); }
+          else if (dsKeys[main.key])          { classP = Promise.resolve({ ds: true, source: dsSourceNames[main.key], dsName: dsNames[main.key] }); }
+          else if (!main.remote)              { classP = Promise.resolve({ reason: "local_component" }); }
+          else {
+            classP = lookupRemoteComponent(main.key).then(function(info) {
+              if (info.state === "found" && dsFileNames[info.fileKey] !== undefined) {
+                return { ds: true, source: dsFileNames[info.fileKey], dsName: componentNames(main).name };
+              }
+              if (info.state === "missing") { return { reason: "outdated", source: null }; }
+              return { reason: "external_library", source: info.fileName || null };
+            });
+          }
+
+          classP.then(function(cls) {
+          var issue = null;
+          if (cls.ds) {
             if (overrides.length > 0) {
               issue = buildInvalidItem(instance, "ds_overridden", main, overrides);
             } else {
-              valid.push(buildValidItem(instance, dsNames[main.key], dsSourceNames[main.key]));
+              valid.push(buildValidItem(instance, cls.dsName, cls.source));
             }
           } else {
-            var reason = main.remote ? "external_library" : "local_component";
-            issue = buildInvalidItem(instance, reason, main, overrides);
+            issue = buildInvalidItem(instance, cls.reason, main, overrides);
+            if (cls.source) { issue.source = cls.source; }
           }
 
           if (!issue) { processNext(); return; }
@@ -624,6 +644,10 @@ function handleRunAudit(msg) {
               if (res.state === "stale") { issue.staleResolution = publicResolution(res.record); }
               invalid.push(issue);
             }
+            processNext();
+          });
+          }).catch(function() {
+            invalid.push(buildInvalidItem(instance, main.remote ? "external_library" : "local_component", main, overrides));
             processNext();
           });
 
@@ -1705,7 +1729,7 @@ function handleMarkReadyForDev(msg) {
 // instance changes afterwards the approval expires and the issue comes back.
 
 var RESOLVE_KEY = "resolution";
-var RESOLVABLE  = { ds_overridden: true, unpublished: true, external_library: true, local_component: true };
+var RESOLVABLE  = { ds_overridden: true, unpublished: true, external_library: true, local_component: true, outdated: true };
 var cachedReviewers = [];
 
 // guidelines.reviewers → can resolve issues.  guidelines.admins → manage the shared token
@@ -1803,7 +1827,9 @@ function resolutionMatches(instance, rec, overrides) {
 function checkResolution(instance, issue) {
   var rec = readResolution(instance);
   if (!rec) { return Promise.resolve({ state: "none" }); }
-  if (!RESOLVABLE[issue.reason] || rec.reason !== issue.reason) {
+  // Exceptions accepted as EXT before 2.10.1 still count when the same instance is now classified OLD.
+  var sameIssue = rec.reason === issue.reason || (rec.reason === "external_library" && issue.reason === "outdated");
+  if (!RESOLVABLE[issue.reason] || !sameIssue) {
     return Promise.resolve({ state: "stale", record: rec });
   }
   return resolutionMatches(instance, rec, issue.overrides).then(function(ok) {
@@ -1948,6 +1974,11 @@ function componentNames(mainComp) {
   } catch(e) {}
   return { name: mainComp.name, variant: null };
 }
+
+// ── Remote component lookup (2.10.1) ─────────────────────────
+// GET /v1/components/:key → which file publishes it. 404 = no longer published (an old or deleted
+// version the instance still points to). Cached per key and per file for the session.
+function lookupRemoteComponent() { return Promise.resolve({ state: "unknown" }); }
 
 function buildInvalidItem(instance, reason, mainComp, overrides) {
   var names = componentNames(mainComp);

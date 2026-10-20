@@ -923,6 +923,8 @@
         fixMissing: "Its source component was deleted or can't be reached. Replace it with a component from {ds}.",
         fixLocal: "Replace it with the matching component from {ds}.",
         fixExternal: "Replace it with the matching component from {ds} — or, if this library is approved, add it in Settings.",
+        rOutdated: "Old version of a library component", fromLib: "From",
+        fixOutdated: "This instance points to a version that is no longer published (the component was deleted or rebuilt in the library). Accept the library update in this file (Assets → Libraries → Update), or swap it for the current component.",
         fixUnpublished: "Use the published component that contains this part, not the internal “_” component.",
         fixModColor: "apply a color variable instead of a raw color",
         fixModType: "apply a text style instead of manual text settings",
@@ -1031,6 +1033,8 @@
         fixMissing: "کامپوننت مرجع حذف شده یا در دسترس نیست. آن را با کامپوننت معادل در {ds} جایگزین کنید.",
         fixLocal: "آن را با کامپوننت معادل در {ds} جایگزین کنید.",
         fixExternal: "آن را با کامپوننت معادل در {ds} جایگزین کنید. اگر این لایبرری مجاز است، آن را از تنظیمات اضافه کنید.",
+        rOutdated: "نسخهٔ قدیمی کامپوننت لایبرری", fromLib: "از",
+        fixOutdated: "این اینستنس به نسخه‌ای اشاره می‌کند که دیگر منتشر نشده (کامپوننت در لایبرری حذف یا دوباره ساخته شده). آپدیت لایبرری را در این فایل بپذیرید (Assets ← Libraries ← Update) یا آن را با کامپوننت فعلی جایگزین کنید.",
         fixUnpublished: "به‌جای کامپوننت داخلی «_»، از کامپوننت منتشرشده‌ای استفاده کنید که آن را در بر دارد.",
         fixModColor: "به‌جای رنگ ثابت، از توکن رنگ استفاده کنید",
         fixModType: "به‌جای تنظیم دستی متن، تکست‌استایل اعمال کنید",
@@ -1136,12 +1140,14 @@
     var REASON_META = {
       missing_main:     { code: "MIS", cls: "danger",  labelKey: "rMissing",     fixKey: "fixMissing" },
       external_library: { code: "EXT", cls: "danger",  labelKey: "rExternal",    fixKey: "fixExternal" },
+      outdated:         { code: "OLD", cls: "warning", labelKey: "rOutdated",    fixKey: "fixOutdated" },
       local_component:  { code: "LOC", cls: "danger",  labelKey: "rLocal",       fixKey: "fixLocal" },
       unpublished:      { code: "UNP", cls: "warning", labelKey: "rUnpublished", fixKey: "fixUnpublished" },
       ds_overridden:    { code: "MOD", cls: "warning", labelKey: "rModified",    fixKey: null },
     };
     REASON_META.detached = REASON_META.missing_main; // results from older versions
-    var REASON_ORDER = ["missing_main", "external_library", "local_component", "unpublished", "ds_overridden"];
+    var REASON_ORDER = ["missing_main", "external_library", "outdated", "local_component", "unpublished", "ds_overridden"];
+    if (EDITION === "public") { REASON_ORDER.splice(2, 1); } // OLD needs the REST lookup (team build only)
 
     function syncTab(el, on) {
       el.classList.toggle("is-active", on);
@@ -2040,7 +2046,7 @@
     }
 
     // ── Resolutions ───────────────────────────────────────────
-    var RESOLVABLE = { ds_overridden: true, unpublished: true, external_library: true, local_component: true };
+    var RESOLVABLE = { ds_overridden: true, unpublished: true, external_library: true, local_component: true, outdated: true };
 
     function canResolve(key) { return !isDev() && state.user && state.user.isReviewer && !!RESOLVABLE[key]; }
 
@@ -2358,6 +2364,11 @@
         where.appendChild(icoEl("frame", "sm")); where.appendChild(document.createTextNode(" "));
         addSpan(where, "ltr-iso", item.path || item.parent.name);
         where.title = t("inLabel") + " " + (item.path || item.parent.name);
+      }
+      // Which library it really comes from (team build looks it up)
+      if (key === "external_library" && item.source) {
+        var src = addDiv(bodyEl, "item__variant", "");
+        src.appendChild(document.createTextNode(t("fromLib") + ": ")); src.appendChild(bdi(item.source));
       }
       // Component properties only matter when they are the problem (overrides)
       if (key === "ds_overridden" && item.variantName) { addDiv(bodyEl, "item__variant", item.variantName); }
