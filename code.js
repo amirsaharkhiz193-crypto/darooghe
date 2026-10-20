@@ -1848,7 +1848,7 @@ function publicResolution(rec) {
 // v2 (2.7.2): geometry ("Dimensions") is left out of the signature, like the verification
 // fingerprint. With it, any reflow (a text edit nearby, a fill-container resize) made an
 // accepted exception look "changed since". v1 records are still checked the old way.
-var RESOLVE_SIG_VERSION = 2;
+var RESOLVE_SIG_VERSION = 3;
 var SIG_SKIP_FIELDS = { "Dimensions": true };
 
 function overridesSignature(overrides, legacy) {
@@ -1869,16 +1869,40 @@ function issueSignature(instance, reason, overrides, legacy) {
 }
 
 // Does a stored resolution still match the instance as it is now?
+// v3 (2.10.0): the signature covers only what was accepted — the issue type, which component it is, and
+// the override values by layer NAME. No internal layer IDs (they change when a frame is duplicated or
+// pasted) and no layout-driven fields, so an exception holds until the accepted issue itself changes.
+function sigReason(reason) { return (reason === "external_library" || reason === "outdated") ? "remote" : reason; }
+
+function issueSignatureV3(instance, reason, overrides) {
+  return instance.getMainComponentAsync().then(function(m) { return m; }, function() { return null; }).then(function(main) {
+    return fpHash("v3\n" + sigReason(reason) + "\n" + (main ? main.key : "none") + "\n" + overridesSignature(overrides, false));
+  });
+}
+
 function resolutionMatches(instance, rec, overrides) {
-  var legacy = !(rec.v >= RESOLVE_SIG_VERSION);
-  return issueSignature(instance, rec.reason, overrides, legacy).then(function(sig) { return sig === rec.sig; });
+  if (rec.v >= 3) {
+    return issueSignatureV3(instance, rec.reason, overrides).then(function(sig) { return sig === rec.sig; });
+  }
+  // v1/v2 records: check with the old signature; when they still match, upgrade them to v3 in place.
+  var legacy = !(rec.v >= 2);
+  return issueSignature(instance, rec.reason, overrides, legacy).then(function(sig) {
+    if (sig !== rec.sig) { return false; }
+    if (!isDevMode()) {
+      issueSignatureV3(instance, rec.reason, overrides).then(function(s3) {
+        rec.v = 3; rec.sig = s3;
+        try { instance.setSharedPluginData(VERIFY_NS, RESOLVE_KEY, JSON.stringify(rec)); } catch(e) {}
+      }, function() {});
+    }
+    return true;
+  });
 }
 
 function checkResolution(instance, issue) {
   var rec = readResolution(instance);
   if (!rec) { return Promise.resolve({ state: "none" }); }
   // Exceptions accepted as EXT before 2.10.1 still count when the same instance is now classified OLD.
-  var sameIssue = rec.reason === issue.reason || (rec.reason === "external_library" && issue.reason === "outdated");
+  var sameIssue = sigReason(rec.reason) === sigReason(issue.reason);
   if (!RESOLVABLE[issue.reason] || !sameIssue) {
     return Promise.resolve({ state: "stale", record: rec });
   }
@@ -1904,7 +1928,7 @@ function handleResolveIssue(msg) {
   getNodeSafely(msg.nodeId).then(function(node) {
     if (!node || node.type !== "INSTANCE") { throw new Error("Instance not found."); }
     var overrides = detectOverrides(node);
-    return issueSignature(node, msg.reason, overrides).then(function(sig) {
+    return issueSignatureV3(node, msg.reason, overrides).then(function(sig) {
       var u = figma.currentUser;
       var rec = {
         v      : RESOLVE_SIG_VERSION,
