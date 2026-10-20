@@ -3,7 +3,7 @@
 var VERSION = {
   major : 2,
   minor : 10,
-  patch : 1,
+  patch : 0,
   label : "",
 };
 
@@ -545,8 +545,43 @@ function handleRunAudit(msg) {
       var valid   = [];
       var invalid = [];
       var index   = 0;
+      var deferred = [];        // remote components not in the DS list: looked up together after the scan
+      var deferredDone = false;
+
+      // All lookups in parallel (cached per key), then classify each instance like the main pass.
+      function resolveDeferred() {
+        sendStatus("Checking " + deferred.length + " component(s) from other files…");
+        return Promise.all(deferred.map(function(d) {
+          return lookupRemoteComponent(d.main.key, dsFileNames).then(function(info) {
+            if (info.state === "found" && dsFileNames[info.fileKey] !== undefined) {
+              if (!d.overrides.length) { valid.push(buildValidItem(d.instance, componentNames(d.main).name, dsFileNames[info.fileKey])); return; }
+              return finishIssue(d.instance, buildInvalidItem(d.instance, "ds_overridden", d.main, d.overrides), dsFileNames[info.fileKey]);
+            }
+            var issue = buildInvalidItem(d.instance, info.state === "missing" ? "outdated" : "external_library", d.main, d.overrides);
+            if (info.fileName && info.state === "found") { issue.source = info.fileName; }
+            return finishIssue(d.instance, issue, null);
+          }).catch(function() {
+            invalid.push(buildInvalidItem(d.instance, "external_library", d.main, d.overrides));
+          });
+        }));
+      }
+
+      function finishIssue(instance, issue, sourceName) {
+        return checkResolution(instance, issue).then(function(res) {
+          if (res.state === "resolved") { valid.push(buildResolvedItem(instance, issue, res.record, sourceName)); }
+          else {
+            if (res.state === "stale") { issue.staleResolution = publicResolution(res.record); }
+            invalid.push(issue);
+          }
+        });
+      }
 
       function processNext() {
+        if (index >= allInstances.length && deferred.length && !deferredDone) {
+          deferredDone = true;
+          resolveDeferred().then(processNext, processNext);
+          return;
+        }
         if (index >= allInstances.length) {
           var auditName = finalFrames.length === 1
             ? finalFrames[0].name
@@ -611,15 +646,12 @@ function handleRunAudit(msg) {
           if (isUnpublishedComponent(main))  { classP = Promise.resolve({ reason: "unpublished" }); }
           else if (dsKeys[main.key])          { classP = Promise.resolve({ ds: true, source: dsSourceNames[main.key], dsName: dsNames[main.key] }); }
           else if (!main.remote)              { classP = Promise.resolve({ reason: "local_component" }); }
-          else {
-            classP = lookupRemoteComponent(main.key).then(function(info) {
-              if (info.state === "found" && dsFileNames[info.fileKey] !== undefined) {
-                return { ds: true, source: dsFileNames[info.fileKey], dsName: componentNames(main).name };
-              }
-              if (info.state === "missing") { return { reason: "outdated", source: null }; }
-              return { reason: "external_library", source: info.fileName || null };
-            });
+          else if (EDITION !== "public") {
+            deferred.push({ instance: instance, main: main, overrides: overrides });   // looked up after the scan
+            processNext();
+            return;
           }
+          else { classP = Promise.resolve({ reason: "external_library" }); }
 
           classP.then(function(cls) {
           var issue = null;
