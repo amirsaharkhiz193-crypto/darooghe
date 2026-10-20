@@ -1003,8 +1003,10 @@ function detectOverrides(instance) {
         add("spacing", "Padding", node ? fmtPadding(node) : "");
       }
       if (has("itemSpacing")) { add("spacing", "Gap / Item Spacing", node ? fmtNumber(safeGet(node, "itemSpacing"), "px") : ""); }
-      if (has("width") || has("height")) {
-        add("size", "Dimensions", node ? fmtNumber(safeGet(node, "width")) + "×" + fmtNumber(safeGet(node, "height")) : "");
+      // Size: only a manual resize counts. Hug/Fill, auto-sizing text, stretch/scale constraints and the
+      // instance itself (resizing a component is normal use) follow content or layout, not a hard-coded size.
+      if (node && ((has("width") && sizeIsFixed(node, instance, "h")) || (has("height") && sizeIsFixed(node, instance, "v")))) {
+        add("size", "Dimensions", fmtNumber(safeGet(node, "width")) + "×" + fmtNumber(safeGet(node, "height")));
       }
       if (has("cornerRadius") || has("topLeftRadius") || has("topRightRadius") || has("bottomLeftRadius") || has("bottomRightRadius")) {
         add("style", "Corner Radius", node ? fmtRadius(node) : "");
@@ -1017,6 +1019,22 @@ function detectOverrides(instance) {
   } catch(e) {}
 
   return issues;
+}
+
+// Is this axis of a layer inside an instance a fixed, hand-set size?
+function sizeIsFixed(node, instance, axis) {
+  if (!node || node.id === instance.id) { return false; }
+  var sizing = safeGet(node, axis === "h" ? "layoutSizingHorizontal" : "layoutSizingVertical");
+  if (sizing && sizing !== "FIXED") { return false; }                      // HUG / FILL
+  if (node.type === "TEXT") {
+    var ar = safeGet(node, "textAutoResize");
+    if (ar === "WIDTH_AND_HEIGHT") { return false; }
+    if (ar === "HEIGHT" && axis === "v") { return false; }
+  }
+  var c = safeGet(node, "constraints");
+  var k = c ? (axis === "h" ? c.horizontal : c.vertical) : null;
+  if (k === "STRETCH" || k === "SCALE") { return false; }                  // follows its parent's size
+  return true;
 }
 
 // ── Value Formatting ──────────────────────────────────────────
