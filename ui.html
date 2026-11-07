@@ -33,7 +33,7 @@
       --text: #1c1e1e; --text-2: #55595b; --muted: #626668;
       --shadow: 0 4px 12px rgba(0,0,0,.08);
     }
-
+    
     /* Theme-change transition (fallback when View Transitions unavailable) */
     html.theme-anim body, html.theme-anim body * { transition: background-color .45s ease, color .45s ease, border-color .45s ease, box-shadow .45s ease !important; }
     ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
@@ -122,6 +122,11 @@
     .token-warn--soon { border-color: var(--warning); background: var(--warning-dim); color: var(--warning); }
     .token-warn[hidden], .panel[hidden], .field[hidden] { display: none; }
     .token-warn__text { flex: 1; min-width: 0; }
+    .audit-notes { display: flex; flex-direction: column; gap: 6px; }
+    .audit-notes:empty { display: none; }
+    .audit-note { display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; border: 1px solid var(--warning); border-radius: var(--r-md); background: var(--warning-dim); color: var(--warning); font-size: 11px; font-weight: 600; line-height: 1.6; }
+    .audit-note .ico { margin-top: 3px; flex-shrink: 0; }
+    .item__unverified { font-size: 11px; color: var(--warning); }
     .token-warn__go { flex-shrink: 0; color: inherit; text-decoration: underline; }
     .token-warn__go[hidden] { display: none; }
     #js-snippet-field label { text-transform: none; letter-spacing: 0; }
@@ -222,6 +227,7 @@
     .rtab__count { font-size: 11px; font-weight: 700; border-radius: 9px; padding: 0 6px; line-height: 16px; background: var(--surface-2); color: var(--text-2); }
     .rtab.is-active[data-tab="invalid"] .rtab__count { background: var(--danger-dim); color: var(--danger); }
     .rtab.is-active[data-tab="valid"] .rtab__count { background: var(--accent-dim); color: var(--accent); }
+    .rtab.is-active[data-tab="warn"] .rtab__count { background: var(--warning-dim); color: var(--warning); }
     .rtabs__list { display: flex; align-items: flex-end; gap: 14px; }
     .rtabs .search { margin-inline-start: auto; margin-bottom: 5px; flex: 0 1 180px; }
     .tfilter { display: flex; gap: 5px; flex-wrap: wrap; }
@@ -247,6 +253,7 @@
     .group__count { margin-inline-start: auto; font-size: 10px; font-weight: 700; border-radius: 9px; padding: 0 7px; line-height: 15px; flex-shrink: 0; }
     .group__count--danger  { color: var(--danger); background: var(--danger-dim); }
     .group__count--success { color: var(--accent); background: var(--accent-dim); }
+    .group__count--warning { color: var(--warning); background: var(--warning-dim); }
     .group__chev { display: flex; transition: transform .2s; flex-shrink: 0; color: var(--muted); }
     .group__chev.is-open { transform: rotate(180deg); }
     .group__body { display: none; flex-direction: column; }
@@ -276,6 +283,7 @@
     .group__header .group__code--danger, .group__header .group__count--danger { background: linear-gradient(var(--danger-dim), var(--danger-dim)), var(--surface); }
     .group__header .group__code--warning { background: linear-gradient(var(--warning-dim), var(--warning-dim)), var(--surface); }
     .group__header .group__count--success { background: linear-gradient(var(--accent-dim), var(--accent-dim)), var(--surface); }
+    .group__header .group__count--warning { background: linear-gradient(var(--warning-dim), var(--warning-dim)), var(--surface); }
     button.item__detail-layer:hover { color: var(--accent); text-decoration-style: solid; }
     button.item__detail-layer:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
     .item__detail-value { font-family: var(--mono); font-size: 11px; color: var(--warning); unicode-bidi: isolate; direction: ltr; }
@@ -535,7 +543,7 @@
 
   <div class="pages">
     <div class="viewas-bar" id="js-viewas-bar" role="status" hidden>
-      <span class="viewas-bar__text" data-i18n="viewAsOn">Viewing as a regular user</span>
+      <span class="viewas-bar__text" data-i18n="viewAsOn">Regular-user view — reviewer and admin options are hidden.</span>
       <button type="button" class="link-btn" id="js-viewas-exit" data-i18n="viewAsExit">Back to admin view</button>
     </div>
 
@@ -559,7 +567,7 @@
           <span class="target__chev" id="js-chevron"><span class="ico" data-ico="chevronDown" data-ico-size="sm"></span></span>
         </button>
         <div class="dropdown" id="js-frame-dropdown" role="listbox"></div>
-        <div class="hint" data-i18n="hintTarget">Pick a frame or section from the list — or just select one on the canvas and it appears here automatically.</div>
+        <div class="hint" data-i18n="hintTarget">Select frames or a section on the canvas, or pick one from the list.</div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:5px;">
@@ -596,7 +604,7 @@
       <div class="empty" id="js-results-empty">
         <span class="ico empty__ico" data-ico="clipboard" data-ico-size="xl"></span>
         <span class="empty__title" data-i18n="noAuditYet">No audit yet</span>
-        <span data-i18n="noAuditYetSub">Run an audit from the Audit tab to see results here.</span>
+        <span data-i18n="noAuditYetSub">Audit a frame to see the results here.</span>
         <button class="btn btn--ghost btn--small" id="js-goto-audit-btn" data-i18n="goToAudit">Go to Audit</button>
       </div>
 
@@ -615,7 +623,7 @@
           <ul class="ov__legend">
             <li><span class="ov__dot ov__dot--ok" aria-hidden="true"></span><span class="ov__name" data-i18n="onSystem">On system</span><span class="ov__n" id="js-stat-valid">0</span></li>
             <li><span class="ov__dot ov__dot--res" aria-hidden="true"></span><span class="ov__name" data-i18n="resolvedStat">Accepted</span><span class="ov__n" id="js-stat-res">0</span></li>
-            <li><span class="ov__dot ov__dot--mod" aria-hidden="true"></span><span class="ov__name" data-i18n="modified">Modified</span><span class="ov__n" id="js-stat-mod">0</span></li>
+            <li><span class="ov__dot ov__dot--mod" aria-hidden="true"></span><span class="ov__name" data-i18n="modified">Overridden</span><span class="ov__n" id="js-stat-mod">0</span></li>
             <li><span class="ov__dot ov__dot--off" aria-hidden="true"></span><span class="ov__name" data-i18n="offSystem">Off system</span><span class="ov__n" id="js-stat-off">0</span></li>
           </ul>
         </section>
@@ -624,11 +632,14 @@
           <div class="verify-list verify-list--compact" id="js-audit-verify"></div>
         </div>
 
+        <div class="audit-notes" id="js-audit-notes" role="status" aria-live="polite"></div>
+
         <div style="display:flex;flex-direction:column;gap:8px;">
           <div class="rtabs">
             <div class="rtabs__list" role="tablist">
             <button class="rtab is-active" role="tab" aria-selected="true" aria-controls="js-instance-list" data-tab="invalid" id="js-chip-invalid"><span data-i18n="issues">Issues</span><span class="rtab__count" id="js-badge-invalid">0</span></button>
             <button class="rtab" role="tab" aria-selected="false" aria-controls="js-instance-list" tabindex="-1" data-tab="valid" id="js-chip-valid"><span data-i18n="passed">Passed</span><span class="rtab__count" id="js-badge-valid">0</span></button>
+            <button class="rtab" role="tab" aria-selected="false" aria-controls="js-instance-list" tabindex="-1" data-tab="warn" id="js-chip-warn"><span data-i18n="warnings">Warnings</span><span class="rtab__count" id="js-badge-warn">0</span></button>
             </div>
             <input class="search" id="js-search" type="search" data-i18n-ph="searchPh" data-i18n-label="searchPh" placeholder="Search…" />
           </div>
@@ -639,7 +650,8 @@
         <div class="instance-list" id="js-instance-list" role="tabpanel" aria-labelledby="js-chip-invalid"></div>
 
         <div style="display:flex;gap:6px;">
-          <button class="btn btn--danger-ghost" id="js-select-all-btn" style="flex:1;" data-icon="pointer" data-i18n="selectAllIssues">Select all issues on canvas</button>
+          <button class="btn btn--danger-ghost" id="js-select-all-btn" style="flex:1;" data-icon="pointer" data-i18n="selectAllIssues">Select all issues</button>
+          <button class="btn btn--ghost" id="js-export-btn" data-icon="download" data-i18n="exportCsv">Export CSV</button>
           <button class="btn btn--ghost" id="js-reaudit-btn" data-icon="refresh" data-i18n="reaudit">Re-audit</button>
         </div>
         <div class="audit-meta" id="js-audit-meta"></div>
@@ -681,7 +693,7 @@
       <div class="page__head">
         <h1 class="page__title" data-i18n="verifyTitle">VERIFICATION</h1>
       </div>
-      <div class="hint" data-i18n="verifyDevHint">Select a frame to see whether Darooghe verified it and whether it changed since.</div>
+      <div class="hint" data-i18n="verifyDevHint">Select a frame to see its verification status.</div>
       <div class="verify-list" id="js-verify-list-dev"></div>
     </main>
 
@@ -731,8 +743,8 @@
             <input class="input" id="js-lib-url-input" type="text" data-i18n-ph="pasteUrlPh" placeholder="Paste Figma file URL…" style="flex:1;" />
             <button class="btn btn--ghost btn--small" id="js-lib-add-btn" style="flex-shrink:0;" data-icon="plus" data-i18n="add">Add</button>
           </div>
-          <div class="hint" data-i18n="addLibHint">In Figma, right-click the library file → Copy Link → paste it here.</div>
-          <div class="hint" data-i18n="libsGistHint">Libraries you add here are only on your device. To give them to everyone, copy them into the gist.</div>
+          <div class="hint" data-i18n="addLibHint">Right-click the library file → Copy link, then paste it here.</div>
+          <div class="hint" data-i18n="libsGistHint">Libraries you add here are only on your device. To share them, copy them into the gist.</div>
           <button type="button" class="btn btn--ghost btn--small" id="js-lib-gist-btn" data-icon="clipboard" data-i18n="copyLibsGist" style="align-self:flex-start;">Copy for gist</button>
         </div>
         <div class="hint" id="js-lib-readonly" hidden data-i18n="libAdminOnly">Only admins can add or remove libraries.</div>
@@ -744,7 +756,7 @@
         <div class="panel__title-row">
           <h2 class="panel__title" data-i18n="reportTitle">Exceptions report</h2>
         </div>
-        <div class="hint" data-i18n="reportHint">Every issue accepted as an exception in this file: where it is, who accepted it, when, and the note.</div>
+        <div class="hint" data-i18n="reportHint">Every issue accepted as an exception in this file, with where, who, when and the note.</div>
         <div class="reviewer-actions">
           <button type="button" class="btn btn--ghost btn--small" id="js-report-btn" data-i18n="reportBtn">Download report (CSV)</button>
           <button type="button" class="btn btn--ghost btn--small" id="js-report-copy" hidden data-i18n="reportCopy">Copy CSV</button>
@@ -792,7 +804,7 @@
       <div class="panel" style="opacity:.65;">
         <div class="panel__title-row">
           <h2 class="panel__title" data-icon="sparkles" data-i18n="aiAnalysis">AI analysis</h2>
-          <span style="margin-inline-start:auto;font-size: 10px;color:var(- -muted);border:1px solid var(- -border-2);border-radius:9px;padding:0 7px;line-height:16px;" data-i18n="comingSoon">Coming soon</span>
+          <span style="margin-inline-start:auto;font-size: 10px;color:var(- -muted);border:1px solid var(- -border-2);border-radius:9px;padding:0 7px;line-height:16px;" data-i18n="comingSoon">Coming Soon</span>
         </div>
         <div class="hint" data-i18n="aiSoonHint">Smart analysis of audit results will be enabled in a future release.</div>
         <div class="field"><label data-i18n="llmKey">LLM API key</label><input class="input" id="js-llm-api-key-input" type="password" placeholder="sk-…" disabled /></div>
@@ -828,25 +840,25 @@
       </div>
       <div class="modal__body" tabindex="0">
         <div class="hint" style="padding-bottom:4px;" data-i18n="tutIntro">Darooghe checks every component on a frame against your team's design system and shows you exactly what's off. Two steps to your first audit:</div>
-        <div class="tut-step" id="js-tut-s1" hidden>
-          <div class="tut-step__num">1</div>
-          <div>
-            <div class="tut-step__title" data-i18n="tutS1Title">Register your library</div>
-            <div class="tut-step__text" data-i18n="tutS1Text">Open your design system library file, run Darooghe and press Settings → Register this file.</div>
-          </div>
-        </div>
         <div class="tut-step">
           <div class="tut-step__num">1</div>
           <div>
-            <div class="tut-step__title" data-i18n="tutS2Title">Pick what to audit</div>
-            <div class="tut-step__text" data-i18n="tutS2Text">On the Audit tab, choose a frame or section from the Target list — or simply click one on the canvas and it is picked up automatically.</div>
+            <div class="tut-step__title" data-i18n="tutS1Title">Select a frame</div>
+            <div class="tut-step__text" data-i18n="tutS1Text">Click a frame or section on the canvas. Hold Shift to pick several.</div>
           </div>
         </div>
         <div class="tut-step">
           <div class="tut-step__num">2</div>
           <div>
-            <div class="tut-step__title" data-i18n="tutS3Title">Run &amp; fix</div>
-            <div class="tut-step__text" data-i18n="tutS3Text">Press Run audit. You'll get a score and a list of issues — click any row to highlight that layer on the canvas, fix it, then Re-audit to confirm.</div>
+            <div class="tut-step__title" data-i18n="tutS2Title">Run the audit</div>
+            <div class="tut-step__text" data-i18n="tutS2Text">You get a compliance score and a list of issues, each with its fix.</div>
+          </div>
+        </div>
+        <div class="tut-step">
+          <div class="tut-step__num">3</div>
+          <div>
+            <div class="tut-step__title" data-i18n="tutS3Title">Fix and audit again</div>
+            <div class="tut-step__text" data-i18n="tutS3Text">Click an issue to jump to its layer. With no issues left, the frame is verified for handoff.</div>
           </div>
         </div>
       </div>
@@ -871,7 +883,19 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.10.0", date: "2026-10-18", current: true, changes: [
+      { version: "2.11.0", date: "2026-11-07", current: true, changes: [
+        { type: "new", text: "Detached components: layers detached from a library component are a new issue type, DET" },
+        { type: "new", text: "Nested parts swapped to a component outside your design system (e.g. an icon) are reported as overrides" },
+        { type: "new", text: "Export CSV: the whole audit (issues, accepted exceptions, passed) as a sheet with Figma links" },
+        { type: "new", text: "Gradients and removed fills/strokes count as overrides; shadows are described (offset, blur, color)" },
+        { type: "new", text: "Nested sections, groups and loose instances inside a section are audited; nothing is counted twice" },
+        { type: "fix", text: "Values from variables or styles (spacing, radius, stroke, typography, color, effects) are no longer reported as overrides" },
+        { type: "fix", text: "Overrides on hidden layers inside a component are ignored" },
+        { type: "fix", text: "Faster audits: instances are analysed in parallel, with live progress" },
+        { type: "new", text: "Warnings tab (RAW): layers outside components with raw colors, text without a text style, Warnings don't block verification" },
+        { type: "fix", text: "Clearer, shorter copy throughout, and a shorter tutorial" },
+      ]},
+      { version: "2.10.0", date: "2026-10-18", current: false, changes: [
         { type: "new", text: "Frame history: every audit and every change (who, when and what changed) is logged on the frame — open History on the verification card" },
         { type: "new", text: "Click the layer name in an override (e.g. the icon's Vector) to select that exact layer" },
         { type: "new", text: "Click a verification card to select its frame on the canvas" },
@@ -889,50 +913,58 @@
       en: {
         navAudit: "Audit", navResults: "Results", navSettings: "Settings", navHelp: "Tutorial", navLang: "تغییر زبان به فارسی", navTheme: "Toggle theme", resizeTitle: "Drag to resize",
         auditTitle: "AUDIT", resultsTitle: "RESULTS", settingsTitle: "SETTINGS",
-        target: "Target", refreshList: "Refresh list", chooseFrame: "Choose a frame…", noFrames: "No frames found",
-        hintTarget: "Select a frame or section on the canvas, or pick one from the list. Shift-select to audit several.",
-        fromCanvas: "From canvas", libsActive: "active libraries", editLibs: "Edit libraries", nFrames: "{n} frames", nFramesType: "{n} ITEMS",
+        target: "Target", refreshList: "Refresh list", chooseFrame: "Choose a frame…", noFrames: "No frames on this page",
+        hintTarget: "Select frames or a section on the canvas, or pick one from the list.",
+        fromCanvas: "From canvas", libsActive: "active libraries", nFrames: "{n} frames", nFramesType: "{n} ITEMS",
         libraries: "Libraries", active: "active", edit: "Edit",
-        connOn: "Connected to Figma API", connOff: "Not connected to Figma — add your token in Settings", connSettings: "Settings",
-        connected: "Connected", notConnected: "Not connected",
+        connSettings: "Settings",
+        connected: "Connected", 
         runAudit: "Run audit", lastRun: "Last run", issuesWord: "issue(s)",
-        fetchingFrames: "Fetching frames…", runningAudit: "Running audit…",
-        noAuditYet: "No audit yet", noAuditYetSub: "Run an audit from the Audit tab to see results here.", goToAudit: "Go to Audit",
-        checked: "Checked", onSystem: "On system", offSystem: "Off system", modified: "Modified",
+        fetchingFrames: "Loading frames…", runningAudit: "Auditing…",
+        noAuditYet: "No audit yet", noAuditYetSub: "Audit a frame to see the results here.", goToAudit: "Go to Audit",
+        checked: "Checked", onSystem: "On system", offSystem: "Off system", modified: "Overridden",
         issues: "Issues", passed: "Passed", searchPh: "Search…",
-        selectAllIssues: "Select all issues on canvas", reaudit: "Re-audit",
+        selectAllIssues: "Select all issues", reaudit: "Re-audit", exportCsv: "Export CSV", exportDone: "CSV downloaded ({n} rows).",
         noIssuesTitle: "No issues found", noIssuesSub: "Everything on this frame is on the design system.", noValidTitle: "No system components used",
         from: "from: ",
-        rMissing: "Main component missing", rLocal: "Local component — not from a library", rExternal: "Component from another library", rModified: "Changed from the design system", rUnpublished: "Internal DS part used directly", typography: "Typography",
-        resolveBtn: "Resolve as OK", resolveConfirm: "Resolve", resolveCancel: "Cancel", resolveNotePh: "Why is this OK? (optional)",
-        resolvedTag: "Resolved", resolvedBy: "Resolved by", unresolve: "Undo",
-        resolvedOk: "Resolved. Re-audit to update the frame's verification.", unresolvedOk: "Resolution removed — the issue is open again.",
-        resolveFail: "Could not resolve: ", staleResolution: "Approval expired — this instance changed after {name} resolved it",
-        viewAsBtn: "View as regular user", viewAsOn: "Viewing as a regular user — reviewer and admin options are hidden.", viewAsExit: "Back to admin view",
+        rMissing: "Main component missing", rLocal: "Local component", rExternal: "From another library", rModified: "Overridden DS component", rUnpublished: "Internal part used directly", typography: "Typography",
+        resolveBtn: "Accept as exception", resolveConfirm: "Accept", resolveCancel: "Cancel", resolveNotePh: "Why is this OK? (optional)",
+        resolvedTag: "Exception", resolvedBy: "Accepted by", unresolve: "Undo",
+        resolvedOk: "Accepted. Audit again to update the frame's verification.", unresolvedOk: "Exception removed — the issue is open again.",
+        resolveFail: "Couldn't accept: ", staleResolution: "No longer valid — this instance changed after {name} accepted it.",
+        viewAsBtn: "View as regular user", viewAsOn: "Regular-user view — reviewer and admin options are hidden.", viewAsExit: "Back to admin view",
         resolvedStat: "Accepted", checkedN: "{n} instances checked",
-        reportTitle: "Exceptions report", reportHint: "Every issue accepted as an exception in this file: where it is, who accepted it, when, and the note.",
+        reportTitle: "Exceptions report", reportHint: "Every issue accepted as an exception in this file, with where, who, when and the note.",
         reportBtn: "Download report (CSV)", reportCopy: "Copy CSV", reportRunning: "Scanning every page of this file…",
-        reportEmpty: "No exceptions in this file.", reportDone: "{n} exceptions ({a} still valid, {s} changed since). If the download didn't start, use Copy CSV.", reportCopied: "CSV copied — paste it into a spreadsheet.",
-        reviewerTitle: "Design system reviewers", yourUserId: "Your Figma user ID", copyMyId: "Copy my ID", idCopied: "ID copied — send it to the Darooghe admin.", noReviewers: "No reviewers yet", reviewerYes: "Reviewer", reviewerNo: "Not a reviewer",
-        reviewerHintYes: "You can resolve issues after reviewing them. Resolutions are stored on the instance and shown to everyone.",
-        reviewerHintNo: "Only these reviewers can accept issues as exceptions. To become one, copy your ID and send it to the Darooghe admin.",
-        reviewerHintNone: "No reviewers are set up yet. Add reviewer user IDs to the \"reviewers\" list in the guidelines file.",
-        vResolved: "{n} approved exception(s)",
-        close: "Close", showOnCanvas: "Show on canvas", toggleGroup: "Show or hide",
-        filterAll: "All", compliance: "Compliance", outOf100: "out of 100", instancesWord: "instances", scoreCaption: "{a} of {b} instances on the design system",
-        fixLabel: "Fix:", layerLabel: "layer", inLabel: "in", rawValue: "raw value",
-        fixMissing: "Its source component was deleted or can't be reached. Replace it with a component from {ds}.",
+        reportEmpty: "No exceptions in this file.", reportDone: "{n} exceptions ({a} valid, {s} changed). If the download didn't start, use Copy CSV.", reportCopied: "CSV copied. Paste it into a spreadsheet.",
+        reviewerTitle: "Design system reviewers", copyMyId: "Copy my ID", idCopied: "ID copied. Send it to the Darooghe admin.", noReviewers: "No reviewers yet", reviewerYes: "Reviewer", reviewerNo: "Not a reviewer",
+        reviewerHintYes: "You can accept issues as exceptions. Each one is saved on the instance and visible to everyone.",
+        reviewerHintNo: "Only these people can accept issues as exceptions. To join, send your ID to the Darooghe admin.",
+        reviewerHintNone: "No reviewers yet. Add their user IDs to \"reviewers\" in the gist.",
+        vResolved: "{n} accepted exception(s)",
+        close: "Close", showOnCanvas: "Show on canvas", 
+        filterAll: "All", compliance: "Compliance", 
+        fixLabel: "Fix:", layerLabel: "layer", inLabel: "in", rawValue: "no token",
+        fixMissing: "Replace it with a component from {ds}.",
+        rDetached: "Detached component",
+        st_fetch: "Loading the design system…", st_loaded: "{n} components loaded. Scanning…", st_found: "{n} instances found. Analyzing…",
+        st_progress: "Analyzing {n} of {total}…", st_remote: "Checking {n} component(s) from other files…",
+        noteDsCached: "Offline: used the saved component list of “{lib}” ({when}). Audit again when you're online.",
+        noteLookupFailed: "{n} component(s) couldn't be checked with Figma and are listed as “another library”. Audit again to recheck.",
+        unverifiedSrc: "Library not confirmed. Audit again to recheck.",
+        fixDetached: "Replace it with an instance from {ds}. Detached layers don't get library updates.",
         fixLocal: "Replace it with the matching component from {ds}.",
-        fixExternal: "Replace it with the matching component from {ds} — or, if this library is approved, add it in Settings.",
-        rOutdated: "Old version of a library component", fromLib: "From",
-        fixOutdated: "This instance points to a version that is no longer published (the component was deleted or rebuilt in the library). Accept the library update in this file (Assets → Libraries → Update), or swap it for the current component.",
-        fixUnpublished: "Use the published component that contains this part, not the internal “_” component.",
-        fixModColor: "apply a color variable instead of a raw color",
-        fixModType: "apply a text style instead of manual text settings",
-        fixModReset: "right-click › Reset all changes, or pick a matching variant",
-        f_fill: "Fill", f_stroke: "Stroke", f_strokeWeight: "Stroke weight", f_opacity: "Opacity", f_padding: "Padding", f_gap: "Gap",
+        fixExternal: "Replace it with a component from {ds}, or turn this library on in Settings.",
+        rOutdated: "Old library version", fromLib: "From",
+        fixOutdated: "Accept the library update (Assets → Libraries → Update), or swap in the current component.",
+        fixUnpublished: "Use the published component that contains this “_” part.",
+        fixModColor: "use a color variable instead of a raw color",
+        fixModSwap: "swap the nested part back to a {ds} component",
+        fixModType: "use a text style instead of manual text settings",
+        fixModReset: "right-click › Reset all changes, or pick the matching variant",
+        f_swap: "Swapped to", f_fill: "Fill", f_stroke: "Stroke", f_strokeWeight: "Stroke weight", f_opacity: "Opacity", f_padding: "Padding", f_gap: "Gap",
         f_size: "Size", f_radius: "Corner radius", f_effects: "Effects", f_fontFamily: "Font", f_fontSize: "Font size", f_fontWeight: "Font weight",
-        f_letterSpacing: "Letter spacing", f_lineHeight: "Line height", f_textCase: "Text case", f_textDecoration: "Text decoration",
+        f_letterSpacing: "Letter spacing", f_lineHeight: "Line height", f_textCase: "Text case", f_textDecoration: "Decoration",
         aiAnalysis: "AI analysis", comingSoon: "Coming Soon", aiLoading: "Analyzing with AI…", complianceScore: "Compliance score",
         identifiedIssues: "Identified issues", recommendations: "Recommendations",
         aiProblem: "Problem", aiSolution: "Solution", aiGuideline: "Guideline", aiGoto: "↗ Go to component",
@@ -940,31 +972,22 @@
         analyzing: "Analyzing…", reanalyze: "Re-analyze", retry: "Retry", aiErrorPrefix: "AI Error: ",
         guidelinesUnavailable: "Guidelines unavailable", guidelinesV: "Guidelines v",
         figmaToken: "Figma token",
-        tokenHint: "Darooghe needs a Figma personal access token to read your team's design system libraries. It is stored only for this account, on this device.",
-        howToGetOne: "How to get one?", saveConnect: "Save & connect", clearToken: "Clear",
-        tokenCleared: "Token removed from this device. You'll be asked for it again next time.", tokenClearFailed: "Could not clear the token: ",
-        addLibrary: "Add library", pasteUrlPh: "Paste Figma file URL…", add: "Add", fetching: "Fetching…",
-        addLibHint: "In Figma, right-click the library file → Copy Link → paste it here.",
+        addLibrary: "Add library", pasteUrlPh: "Figma file link…", add: "Add", fetching: "Fetching…",
+        addLibHint: "Right-click the library file → Copy link, then paste it here.",
         aiSoonHint: "Smart analysis of audit results will be enabled in a future release.",
         llmKey: "LLM API key", apiUrl: "API URL", version: "Version", changelog: "Changelog",
         defaultAlwaysOn: "default · always on", custom: "custom", on: "on", off: "off",
-        stSaved: "Settings saved", stError: "Error: ",
-        errTokenRequired: "Please enter your Figma token", errTokenPrefix: "The Figma token must start with 'figd_'", errTokenShort: "The Figma token is too short",
-        errLlmPrefix: "The LLM API key must start with 'sk-'", errLlmShort: "The LLM API key is too short",
-        errUrlHttps: "The API URL must start with 'https://'", errUrlInvalid: "The API URL is not valid",
-        needTokenFirst: "Please save your Figma token first (above)",
         invalidUrl: "Invalid Figma URL.", alreadyDefault: "This is already the default library.", alreadyAdded: "This library is already added.",
-        fetchingFile: "Fetching file info…", addedOk: " added successfully!", failed: "Failed: ",
-        settingsNeededFigma: "Welcome! Add your Figma token below to get started — it's saved for this account and device, so you only do this once.",
+        fetchingFile: "Fetching file info…", addedOk: " added.", failed: "Failed: ",
         clickToHighlight: "Click to highlight on canvas", removeLib: "Remove library",
         tutTitle: "Welcome to Darooghe",
-        tutIntro: "Darooghe checks every component on a frame against your team's design system and shows you exactly what's off. Two steps to your first audit:",
-        tutS1Title: "Connect your Figma token",
-        tutS1Text: "Go to Settings, paste your personal access token and press Save & connect. You can create one in Figma → Settings → Security → Personal access tokens. It stays on this device only.",
-        tutS2Title: "Pick what to audit",
-        tutS2Text: "On the Audit tab, choose a frame or section from the Target list — or simply click one on the canvas and it is picked up automatically.",
-        tutS3Title: "Run & fix",
-        tutS3Text: "Press Run audit. You'll get a score and a list of issues — click any row to highlight that layer on the canvas, fix it, then Re-audit to confirm.",
+        tutIntro: "Darooghe checks the components in a frame against {ds} and shows what to fix.",
+        tutS1Title: "Select a frame",
+        tutS1Text: "Click a frame or section on the canvas. Hold Shift to pick several.",
+        tutS2Title: "Run the audit",
+        tutS2Text: "You get a compliance score and a list of issues, each with its fix.",
+        tutS3Title: "Fix and audit again",
+        tutS3Text: "Click an issue to jump to its layer. With no issues left, the frame is verified for handoff.",
         tutSkip: "Got it",
         sharedTokenTitle: "Shared Figma token", newTokenLabel: "New token", newExpLabel: "Expires on",
         genSnippet: "Create gist snippet", snippetLabel: "Replace \"figmaToken\" in guidelines.json with:", copy: "Copy", copied: "Copied — paste it into the gist and save.",
@@ -977,134 +1000,153 @@
         tkInfoMissing: "No token in the gist. Add one so everyone can audit.",
         warnSoonReviewer: "The shared Figma token expires in {n} days. Update it in the gist.",
         warnDeadReviewer: "The shared Figma token has expired or stopped working. Update it in the gist — nobody can audit until then.",
-        warnDeadUser: "Darooghe can't reach Figma right now (shared token expired). Let the design system team know.",
+        warnDeadUser: "Darooghe can't reach Figma right now. Let the design system team know.",
         errLibNoAccess: "The Darooghe Figma account can't open \"{lib}\". Share that library file with it, or turn the library off in Settings.",
         errLibAddNoAccess: "The Darooghe Figma account can't open this file. Share it with that account first.",
-        errNotAdmin: "Only admins can add libraries.", libAdminOnly: "Only admins can add or remove libraries.", libTeam: "Team",
+        errNotAdmin: "Only admins can add libraries.", libAdminOnly: "Only admins can add or remove libraries.", 
         copyLibsGist: "Copy for gist", libsCopied: "Copied. Paste it into the guidelines gist (top level, next to \"reviewers\").",
-        libsGistHint: "Libraries you add here are only on your device. To give them to everyone, copy them into the gist.",
-        hist: "History", histAudit_verified: "Audited: verified", histAudit_failed: "Audited: {n} issue(s)", histAudit_empty: "Audited: no components",
-        histChange: "Changed", histChangeUnknown: "Changed (editor unknown)", histEditors: "Edited the file in this window:", selectLayer: "Select layer",
+        libsGistHint: "Libraries you add here are only on your device. To share them, copy them into the gist.",
+        hist: "History", histAudit_verified: "Audit: verified", histAudit_failed: "Audit: {n} issue(s)", histAudit_empty: "Audit: no components",
+        histChange: "Changed", histChangeUnknown: "Changed (unknown editor)", histEditors: "Edited the file in this window:", selectLayer: "Select layer",
         dAdd: "Added", dRm: "Removed", dSwap: "Swapped", dVar: "Variant", dReset: "Override reset", dOther: "Layers outside components changed", dMore: "and {n} more change(s)", dNone: "none",
         verification: "Verification", refresh: "Refresh", verifyTitle: "VERIFICATION",
-        verifyDevHint: "Select a frame to see whether Darooghe verified it and whether it changed since.",
+        verifyDevHint: "Select a frame to see its verification status.",
         verifyNoSelection: "Select a frame on the canvas to see its verification status.",
-        vs_verified: "Verified by Darooghe", vs_changed: "Changed since verification", vs_none: "Not verified",
-        vs_failed: "Not verified — issues found", vs_empty: "Not verified — no components to check", vs_error: "Could not save verification", vs_outdated: "Re-audit needed",
+        vs_verified: "Verified", vs_changed: "Changed since verification", vs_none: "Not verified",
+        vs_failed: "Not verified — issues found", vs_empty: "Not verified — no components", vs_error: "Could not save verification", vs_outdated: "Re-audit needed",
         vOutdatedHint: "Verified with an older Darooghe version",
-        vBy: "by", vIssues: "issue(s) to fix", vReaudit: "Re-audit to verify again", vSaved: "Stamp saved on the frame",
+        vBy: "by", vIssues: "issue(s) to fix", vReaudit: "Audit again to verify", vSaved: "Stamp saved on the frame",
         vNoneHint: "Run an audit with zero issues to verify it", markReady: "Mark ready for dev", readyForDev: "Ready for dev", completed: "Completed",
         readyOk: "Marked ready for dev: ", readyFail: "Could not mark ready for dev: ",
+        errFrameNotFound: "This frame no longer exists. Select it again.",
+        errNoFrames: "Nothing to audit. Select a frame, group or instance.",
+        errDsFetch: "Couldn't load the design system components. Check your connection and try again.",
+        warnings: "Warnings",
+        rRaw: "Raw style outside components",
+        noWarnTitle: "No warnings",
+        noWarnSub: "Layers outside components all use tokens.",
+        f_textStyle: "No text style",
+        fixRawText: "apply a text style",
+        noteRawMore: "Showing the first {n} warnings.",
       },
       fa: {
         navAudit: "بررسی", navResults: "نتایج", navSettings: "تنظیمات", navHelp: "راهنما", navLang: "Switch to English", navTheme: "تغییر تم", resizeTitle: "برای تغییر اندازه بکشید",
         auditTitle: "بررسی", resultsTitle: "نتایج", settingsTitle: "تنظیمات",
-        target: "فریم موردنظر", refreshList: "به‌روزرسانی فهرست", chooseFrame: "یک فریم انتخاب کنید…", noFrames: "فریمی در این صفحه نیست",
-        hintTarget: "فریم یا سکشن را روی کانواس انتخاب کنید، یا از فهرست. برای چند فریم از Shift استفاده کنید.",
-        fromCanvas: "از کانواس", libsActive: "لایبرری فعال", editLibs: "ویرایش لایبرری‌ها", nFrames: "{n} فریم", nFramesType: "{n} مورد",
+        target: "فریم یا سکشن", refreshList: "به‌روزرسانی فهرست", chooseFrame: "یک فریم انتخاب کنید…", noFrames: "فریمی در این صفحه نیست",
+        hintTarget: "فریم یا سکشن را روی کانواس انتخاب کنید یا از فهرست برگزینید. برای چند مورد، Shift را نگه دارید.",
+        fromCanvas: "از کانواس", libsActive: "لایبرری فعال", nFrames: "{n} فریم", nFramesType: "{n} مورد",
         libraries: "لایبرری‌ها", active: "فعال", edit: "ویرایش",
-        connOn: "متصل به Figma", connOff: "به Figma متصل نیست؛ توکن را در تنظیمات وارد کنید", connSettings: "تنظیمات",
-        connected: "متصل", notConnected: "متصل نیست",
+        connSettings: "تنظیمات",
+        connected: "متصل", 
         runAudit: "شروع بررسی", lastRun: "آخرین بررسی", issuesWord: "ایراد",
         fetchingFrames: "در حال دریافت فریم‌ها…", runningAudit: "در حال بررسی…",
-        noAuditYet: "هنوز بررسی‌ای انجام نشده", noAuditYetSub: "از صفحهٔ بررسی، یک فریم را بررسی کنید تا نتیجه اینجا نمایش داده شود.", goToAudit: "رفتن به بررسی",
-        checked: "بررسی‌شده", onSystem: "منطبق", offSystem: "خارج از سیستم", modified: "تغییریافته",
+        noAuditYet: "هنوز بررسی نکرده‌اید", noAuditYetSub: "یک فریم را بررسی کنید تا نتیجه اینجا نمایش داده شود.", goToAudit: "رفتن به بررسی",
+        checked: "بررسی‌شده", onSystem: "منطبق", offSystem: "خارج از سیستم", modified: "اوراید‌شده",
         issues: "ایرادها", passed: "منطبق", searchPh: "جست‌وجو…",
-        selectAllIssues: "انتخاب همهٔ ایرادها روی کانواس", reaudit: "بررسی دوباره",
+        selectAllIssues: "انتخاب همهٔ ایرادها", reaudit: "بررسی دوباره", exportCsv: "خروجی CSV", exportDone: "CSV دانلود شد ({n} ردیف).",
         noIssuesTitle: "ایرادی پیدا نشد", noIssuesSub: "همهٔ کامپوننت‌های این فریم با دیزاین سیستم منطبق‌اند.", noValidTitle: "هیچ کامپوننتی از دیزاین سیستم استفاده نشده",
         from: "از ",
-        rMissing: "کامپوننت مرجع پیدا نشد", rLocal: "کامپوننت لوکال (خارج از لایبرری)", rExternal: "کامپوننت از لایبرری دیگر", rModified: "اوراید روی کامپوننت دیزاین سیستم", rUnpublished: "استفادهٔ مستقیم از کامپوننت داخلی", typography: "تایپوگرافی",
+        rMissing: "کامپوننت مرجع پیدا نشد", rLocal: "کامپوننت لوکال", rExternal: "کامپوننت لایبرری دیگر", rModified: "اوراید روی کامپوننت", rUnpublished: "استفادهٔ مستقیم از بخش داخلی", typography: "تایپوگرافی",
         resolveBtn: "پذیرفتن به‌عنوان استثنا", resolveConfirm: "ثبت", resolveCancel: "انصراف", resolveNotePh: "دلیل پذیرش (اختیاری)",
-        resolvedTag: "پذیرفته‌شده", resolvedBy: "پذیرفته‌شده توسط", unresolve: "لغو پذیرش",
-        resolvedOk: "استثنا ثبت شد. برای به‌روز شدن تأیید فریم، دوباره بررسی کنید.", unresolvedOk: "پذیرش لغو شد و این ایراد دوباره باز است.",
-        resolveFail: "ثبت انجام نشد: ", staleResolution: "پذیرش {name} دیگر معتبر نیست؛ این اینستنس پس از آن تغییر کرده است.",
-        viewAsBtn: "مشاهده به‌عنوان کاربر عادی", viewAsOn: "در حال مشاهده به‌عنوان کاربر عادی؛ گزینه‌های بازبین و مدیر پنهان هستند.", viewAsExit: "بازگشت به نمای مدیر",
+        resolvedTag: "استثنا", resolvedBy: "پذیرش:", unresolve: "لغو پذیرش",
+        resolvedOk: "استثنا ثبت شد. دوباره بررسی کنید تا تأیید فریم به‌روز شود.", unresolvedOk: "پذیرش لغو شد و این ایراد دوباره باز است.",
+        resolveFail: "ثبت انجام نشد: ", staleResolution: "پذیرش {name} دیگر معتبر نیست؛ اینستنس بعد از آن تغییر کرده است.",
+        viewAsBtn: "مشاهده به‌عنوان کاربر عادی", viewAsOn: "نمای کاربر عادی؛ گزینه‌های بازبین و ادمین پنهان‌اند.", viewAsExit: "بازگشت به نمای ادمین",
         resolvedStat: "استثنا", checkedN: "{n} اینستنس بررسی شد",
-        reportTitle: "گزارش استثناها", reportHint: "همهٔ ایرادهایی که در این فایل به‌عنوان استثنا پذیرفته شده‌اند، به‌همراه محل، نام بازبین، تاریخ و توضیح.",
+        reportTitle: "گزارش استثناها", reportHint: "همهٔ ایرادهایی که در این فایل استثنا پذیرفته شده‌اند، با محل، بازبین، تاریخ و یادداشت.",
         reportBtn: "دریافت گزارش (CSV)", reportCopy: "کپی CSV", reportRunning: "در حال بررسی همهٔ صفحه‌های این فایل…",
-        reportEmpty: "در این فایل استثنایی ثبت نشده است.", reportDone: "{n} استثنا ({a} معتبر، {s} تغییرکرده پس از پذیرش). اگر دانلود شروع نشد، از «کپی CSV» استفاده کنید.", reportCopied: "CSV کپی شد؛ آن را در یک اسپردشیت قرار دهید.",
-        reviewerTitle: "بازبین‌های دیزاین سیستم", yourUserId: "شناسهٔ کاربری Figma", copyMyId: "کپی شناسهٔ من", idCopied: "شناسه کپی شد؛ آن را برای مدیر داروغه بفرستید.", noReviewers: "هنوز بازبینی تعریف نشده است", reviewerYes: "بازبین", reviewerNo: "بازبین نیستید",
-        reviewerHintYes: "پس از بازبینی می‌توانید ایرادها را به‌عنوان استثنا بپذیرید. هر پذیرش روی خود اینستنس ثبت می‌شود و برای همه قابل مشاهده است.",
-        reviewerHintNo: "فقط این افراد می‌توانند ایرادها را به‌عنوان استثنا بپذیرند. برای اضافه شدن به این فهرست، شناسهٔ خود را کپی کنید و برای مدیر داروغه بفرستید.",
-        reviewerHintNone: "هنوز بازبینی تعریف نشده است. شناسهٔ بازبین‌ها را به فهرست \"reviewers\" در فایل گایدلاین اضافه کنید.",
+        reportEmpty: "در این فایل استثنایی ثبت نشده است.", reportDone: "{n} استثنا ({a} معتبر، {s} تغییرکرده). اگر دانلود شروع نشد، «کپی CSV» را بزنید.", reportCopied: "CSV کپی شد. آن را در یک شیت بچسبانید.",
+        reviewerTitle: "بازبین‌های دیزاین سیستم", copyMyId: "کپی شناسهٔ من", idCopied: "شناسه کپی شد. آن را برای ادمین داروغه بفرستید.", noReviewers: "هنوز بازبینی تعریف نشده است", reviewerYes: "بازبین", reviewerNo: "بازبین نیستید",
+        reviewerHintYes: "می‌توانید ایرادها را به‌عنوان استثنا بپذیرید. هر پذیرش روی اینستنس ثبت می‌شود و همه آن را می‌بینند.",
+        reviewerHintNo: "فقط این افراد می‌توانند ایراد را استثنا بپذیرند. برای اضافه شدن، شناسهٔ خود را برای ادمین داروغه بفرستید.",
+        reviewerHintNone: "هنوز بازبینی تعریف نشده است. شناسهٔ بازبین‌ها را به فهرست «reviewers» در گیست اضافه کنید.",
         vResolved: "{n} استثنای پذیرفته‌شده",
-        close: "بستن", showOnCanvas: "نمایش روی کانواس", toggleGroup: "نمایش یا پنهان کردن",
-        filterAll: "همه", compliance: "انطباق", outOf100: "از ۱۰۰", instancesWord: "اینستنس", scoreCaption: "{a} از {b} اینستنس با دیزاین سیستم منطبق‌اند",
+        close: "بستن", showOnCanvas: "نمایش روی کانواس", 
+        filterAll: "همه", compliance: "انطباق", 
         fixLabel: "راه‌حل:", layerLabel: "لایهٔ", inLabel: "در", rawValue: "بدون توکن",
-        fixMissing: "کامپوننت مرجع حذف شده یا در دسترس نیست. آن را با کامپوننت معادل در {ds} جایگزین کنید.",
+        fixMissing: "آن را با کامپوننتی از {ds} جایگزین کنید.",
+        rDetached: "کامپوننت جداشده (Detach)",
+        st_fetch: "در حال دریافت دیزاین سیستم…", st_loaded: "{n} کامپوننت دریافت شد. در حال بررسی…", st_found: "{n} اینستنس پیدا شد. در حال تحلیل…",
+        st_progress: "در حال تحلیل {n} از {total}…", st_remote: "در حال بررسی {n} کامپوننت از فایل‌های دیگر…",
+        noteDsCached: "اتصال برقرار نشد؛ از فهرست ذخیره‌شدهٔ «{lib}» ({when}) استفاده شد. وقتی آنلاین شدید دوباره بررسی کنید.",
+        noteLookupFailed: "{n} کامپوننت با فیگما چک نشد و فعلاً «لایبرری دیگر» حساب شده است. دوباره بررسی کنید.",
+        unverifiedSrc: "لایبرری این کامپوننت مشخص نشد. دوباره بررسی کنید.",
+        fixDetached: "آن را با اینستنسی از {ds} جایگزین کنید؛ لایهٔ جداشده آپدیت‌های لایبرری را نمی‌گیرد.",
         fixLocal: "آن را با کامپوننت معادل در {ds} جایگزین کنید.",
-        fixExternal: "آن را با کامپوننت معادل در {ds} جایگزین کنید. اگر این لایبرری مجاز است، آن را از تنظیمات اضافه کنید.",
-        rOutdated: "نسخهٔ قدیمی کامپوننت لایبرری", fromLib: "از",
-        fixOutdated: "این اینستنس به نسخه‌ای اشاره می‌کند که دیگر منتشر نشده (کامپوننت در لایبرری حذف یا دوباره ساخته شده). آپدیت لایبرری را در این فایل بپذیرید (Assets ← Libraries ← Update) یا آن را با کامپوننت فعلی جایگزین کنید.",
-        fixUnpublished: "به‌جای کامپوننت داخلی «_»، از کامپوننت منتشرشده‌ای استفاده کنید که آن را در بر دارد.",
+        fixExternal: "آن را با کامپوننتی از {ds} جایگزین کنید یا این لایبرری را در تنظیمات فعال کنید.",
+        rOutdated: "نسخهٔ قدیمی لایبرری", fromLib: "از",
+        fixOutdated: "آپدیت لایبرری را بپذیرید (Assets ← Libraries ← Update) یا کامپوننت فعلی را جایگزین کنید.",
+        fixUnpublished: "از کامپوننت منتشرشده‌ای استفاده کنید که این بخش «_» را در بر دارد.",
         fixModColor: "به‌جای رنگ ثابت، از توکن رنگ استفاده کنید",
-        fixModType: "به‌جای تنظیم دستی متن، تکست‌استایل اعمال کنید",
+        fixModSwap: "بخش جایگزین‌شده را به کامپوننتی از {ds} برگردانید",
+        fixModType: "به‌جای تنظیم دستی، تکست‌استایل بگذارید",
         fixModReset: "با راست‌کلیک › Reset all changes اورایدها را بردارید یا واریانت مناسب را انتخاب کنید",
-        f_fill: "رنگ", f_stroke: "رنگ استروک", f_strokeWeight: "ضخامت استروک", f_opacity: "شفافیت", f_padding: "پدینگ", f_gap: "گپ",
+        f_swap: "جایگزین‌شده با", f_fill: "فیل", f_stroke: "استروک", f_strokeWeight: "ضخامت استروک", f_opacity: "شفافیت", f_padding: "پدینگ", f_gap: "گپ",
         f_size: "اندازه", f_radius: "رادیوس", f_effects: "افکت", f_fontFamily: "فونت", f_fontSize: "اندازهٔ فونت", f_fontWeight: "وزن فونت",
-        f_letterSpacing: "فاصلهٔ حروف", f_lineHeight: "ارتفاع خط", f_textCase: "حالت حروف", f_textDecoration: "زیرخط/خط‌خوردگی",
+        f_letterSpacing: "فاصلهٔ حروف", f_lineHeight: "ارتفاع سطر", f_textCase: "حالت حروف", f_textDecoration: "دکوریشن متن",
         aiAnalysis: "تحلیل هوشمند", comingSoon: "به‌زودی", aiLoading: "در حال تحلیل…", complianceScore: "امتیاز انطباق",
         identifiedIssues: "ایرادهای شناسایی‌شده", recommendations: "پیشنهادها",
         aiProblem: "ایراد", aiSolution: "راه‌حل", aiGuideline: "گایدلاین", aiGoto: "رفتن به کامپوننت",
         sevCritical: "جدی", sevWarning: "هشدار", sevInfo: "اطلاع",
         analyzing: "در حال تحلیل…", reanalyze: "تحلیل دوباره", retry: "تلاش دوباره", aiErrorPrefix: "خطای تحلیل: ",
         guidelinesUnavailable: "گایدلاین در دسترس نیست", guidelinesV: "گایدلاین نسخهٔ ",
-        figmaToken: "توکن Figma",
-        tokenHint: "داروغه برای خواندن لایبرری‌های دیزاین سیستم به توکن دسترسی شخصی Figma نیاز دارد. توکن فقط روی همین دستگاه و برای حساب شما ذخیره می‌شود.",
-        howToGetOne: "توکن را از کجا بگیرم؟", saveConnect: "ذخیره و اتصال", clearToken: "حذف توکن",
-        tokenCleared: "توکن از این دستگاه حذف شد. دفعهٔ بعد دوباره درخواست می‌شود.", tokenClearFailed: "حذف توکن انجام نشد: ",
-        addLibrary: "افزودن لایبرری", pasteUrlPh: "لینک فایل Figma را وارد کنید…", add: "افزودن", fetching: "در حال دریافت…",
-        addLibHint: "در Figma روی فایل لایبرری راست‌کلیک کنید، Copy link را بزنید و لینک را اینجا قرار دهید.",
+        figmaToken: "توکن فیگما",
+        addLibrary: "افزودن لایبرری", pasteUrlPh: "لینک فایل فیگما…", add: "افزودن", fetching: "در حال دریافت…",
+        addLibHint: "روی فایل لایبرری راست‌کلیک کنید، Copy link را بزنید و لینک را اینجا بگذارید.",
         aiSoonHint: "تحلیل هوشمند نتایج در نسخه‌های بعدی اضافه می‌شود.",
         llmKey: "کلید LLM API", apiUrl: "آدرس API", version: "نسخهٔ", changelog: "تغییرات نسخه‌ها",
         defaultAlwaysOn: "پیش‌فرض · همیشه فعال", custom: "اضافه‌شده", on: "فعال", off: "غیرفعال",
-        stSaved: "تنظیمات ذخیره شد", stError: "خطا: ",
-        errTokenRequired: "توکن Figma را وارد کنید", errTokenPrefix: "توکن Figma باید با figd_ شروع شود", errTokenShort: "توکن Figma کامل نیست",
-        errLlmPrefix: "کلید LLM باید با sk- شروع شود", errLlmShort: "کلید LLM کامل نیست",
-        errUrlHttps: "آدرس API باید با https:// شروع شود", errUrlInvalid: "آدرس API معتبر نیست",
-        needTokenFirst: "ابتدا توکن Figma را ذخیره کنید",
-        invalidUrl: "لینک Figma معتبر نیست.", alreadyDefault: "این لایبرری پیش‌فرض است و از قبل فعال است.", alreadyAdded: "این لایبرری قبلاً اضافه شده است.",
+        invalidUrl: "لینک فیگما معتبر نیست.", alreadyDefault: "این لایبرری پیش‌فرض است و همیشه فعال است.", alreadyAdded: "این لایبرری قبلاً اضافه شده است.",
         fetchingFile: "در حال دریافت اطلاعات فایل…", addedOk: " اضافه شد.", failed: "انجام نشد: ",
-        settingsNeededFigma: "برای شروع، توکن Figma را وارد کنید. این کار فقط یک بار لازم است.",
         clickToHighlight: "برای نمایش روی کانواس کلیک کنید", removeLib: "حذف لایبرری",
         tutTitle: "به داروغه خوش آمدید",
-        tutIntro: "داروغه کامپوننت‌های هر فریم را با دیزاین سیستم مقایسه می‌کند و نشان می‌دهد کدام بخش‌ها با آن منطبق نیستند. برای اولین بررسی:",
-        tutS1Title: "توکن Figma را وارد کنید",
-        tutS1Text: "در Figma از مسیر Settings › Security › Personal access tokens یک توکن بسازید، آن را در تنظیمات داروغه وارد کنید و «ذخیره و اتصال» را بزنید. توکن فقط روی همین دستگاه می‌ماند.",
-        tutS2Title: "فریم را انتخاب کنید",
-        tutS2Text: "در صفحهٔ بررسی، فریم یا سکشن را از فهرست انتخاب کنید، یا آن را روی کانواس انتخاب کنید.",
-        tutS3Title: "بررسی و اصلاح",
-        tutS3Text: "«شروع بررسی» را بزنید. با کلیک روی هر ایراد، لایهٔ مربوط روی کانواس انتخاب می‌شود. بعد از اصلاح، دوباره بررسی کنید.",
+        tutIntro: "داروغه کامپوننت‌های هر فریم را با {ds} مقایسه می‌کند و نشان می‌دهد چه چیزی باید اصلاح شود.",
+        tutS1Title: "فریم را انتخاب کنید",
+        tutS1Text: "روی کانواس یک فریم یا سکشن را انتخاب کنید. برای انتخاب چند مورد، Shift را نگه دارید.",
+        tutS2Title: "بررسی را شروع کنید",
+        tutS2Text: "امتیاز انطباق و فهرست ایرادها را، همراه با راه‌حل هر کدام، می‌بینید.",
+        tutS3Title: "اصلاح کنید و دوباره بررسی کنید",
+        tutS3Text: "با کلیک روی هر ایراد به لایهٔ آن می‌روید. وقتی ایرادی نماند، فریم برای تحویل تأیید می‌شود.",
         tutSkip: "متوجه شدم",
-        sharedTokenTitle: "توکن مشترک Figma", newTokenLabel: "توکن جدید", newExpLabel: "تاریخ انقضا",
-        genSnippet: "ساخت کد برای گیست", snippetLabel: "این را به‌جای \"figmaToken\" در guidelines.json قرار دهید:", copy: "کپی", copied: "کپی شد. آن را در گیست قرار دهید و ذخیره کنید.",
-        errNewToken: "توکنی وارد کنید که با figd_ شروع شود.", errNewExp: "تاریخ انقضایی را که Figma نشان داده انتخاب کنید.",
+        sharedTokenTitle: "توکن مشترک فیگما", newTokenLabel: "توکن جدید", newExpLabel: "تاریخ انقضا",
+        genSnippet: "ساخت کد گیست", snippetLabel: "این را به‌جای \"figmaToken\" در guidelines.json قرار دهید:", copy: "کپی", copied: "کپی شد. آن را در گیست بگذارید و ذخیره کنید.",
+        errNewToken: "توکنی وارد کنید که با figd_ شروع شود.", errNewExp: "تاریخ انقضایی را که فیگما نشان داده انتخاب کنید.",
         tkOk: "معتبر", tkSoon: "رو به انقضا", tkExpired: "منقضی‌شده", tkInvalid: "نامعتبر", tkMissing: "تنظیم نشده",
-        tkInfoOk: "همهٔ کاربران با این توکن بررسی می‌کنند. تاریخ انقضا: {date}.", tkInfoNoDate: "همهٔ کاربران با این توکن بررسی می‌کنند. تاریخ انقضا در گیست ثبت نشده است.",
-        tkInfoSoon: "تاریخ انقضا: {date} ({n} روز مانده). یک توکن ۹۰ روزهٔ جدید روی حساب Figma داروغه بسازید و گیست را به‌روز کنید.",
-        tkInfoExpired: "در تاریخ {date} منقضی شده است. تا توکن جدید در گیست قرار نگیرد، هیچ‌کس نمی‌تواند بررسی کند.",
-        tkInfoInvalid: "Figma این توکن را نمی‌پذیرد. یک توکن جدید روی حساب Figma داروغه بسازید و گیست را به‌روز کنید.",
-        tkInfoMissing: "توکنی در گیست نیست. یک توکن اضافه کنید تا کاربران بتوانند بررسی کنند.",
-        warnSoonReviewer: "توکن مشترک Figma تا {n} روز دیگر منقضی می‌شود. آن را در گیست به‌روز کنید.",
-        warnDeadReviewer: "توکن مشترک Figma منقضی شده یا کار نمی‌کند. آن را در گیست به‌روز کنید؛ تا آن موقع هیچ‌کس نمی‌تواند بررسی کند.",
-        warnDeadUser: "داروغه فعلاً به Figma دسترسی ندارد (توکن مشترک منقضی شده است). به تیم دیزاین سیستم اطلاع دهید.",
-        errLibNoAccess: "حساب Figma داروغه به «{lib}» دسترسی ندارد. فایل لایبرری را با این حساب به اشتراک بگذارید یا آن را در تنظیمات غیرفعال کنید.",
-        errLibAddNoAccess: "حساب Figma داروغه به این فایل دسترسی ندارد. اول فایل را با این حساب به اشتراک بگذارید.",
-        errNotAdmin: "فقط ادمین‌ها می‌توانند لایبرری اضافه کنند.", libAdminOnly: "فقط ادمین‌ها می‌توانند لایبرری اضافه یا حذف کنند.", libTeam: "تیم",
-        copyLibsGist: "کپی برای گیست", libsCopied: "کپی شد. آن را در گیست راهنما (سطح اول، کنار «reviewers») قرار دهید.",
-        libsGistHint: "لایبرری‌هایی که این‌جا اضافه می‌کنید فقط روی دستگاه شما هستند. برای اینکه همه داشته باشند، آن‌ها را در گیست قرار دهید.",
-        hist: "تاریخچه", histAudit_verified: "بررسی شد: تأیید شد", histAudit_failed: "بررسی شد: {n} ایراد", histAudit_empty: "بررسی شد: کامپوننتی پیدا نشد",
-        histChange: "تغییر کرد", histChangeUnknown: "تغییر کرد (ویرایشگر نامشخص)", histEditors: "ویرایشگرهای فایل در این بازه:", selectLayer: "انتخاب لایه",
-        dAdd: "اضافه شد", dRm: "حذف شد", dSwap: "جایگزین شد", dVar: "واریانت", dReset: "اوراید ریست شد", dOther: "لایه‌های خارج از کامپوننت تغییر کرد", dMore: "و {n} تغییر دیگر", dNone: "هیچ",
+        tkInfoOk: "همه با این توکن بررسی می‌کنند. انقضا: {date}.", tkInfoNoDate: "همه با این توکن بررسی می‌کنند. تاریخ انقضا در گیست ثبت نشده است.",
+        tkInfoSoon: "انقضا: {date} ({n} روز مانده). یک توکن ۹۰ روزهٔ جدید روی حساب فیگمای داروغه بسازید و گیست را به‌روز کنید.",
+        tkInfoExpired: "در {date} منقضی شده است. تا توکن جدید در گیست قرار نگیرد، کسی نمی‌تواند بررسی کند.",
+        tkInfoInvalid: "فیگما این توکن را نمی‌پذیرد. توکن جدیدی روی حساب فیگمای داروغه بسازید و گیست را به‌روز کنید.",
+        tkInfoMissing: "توکنی در گیست نیست. یکی اضافه کنید تا همه بتوانند بررسی کنند.",
+        warnSoonReviewer: "توکن مشترک فیگما {n} روز دیگر منقضی می‌شود. آن را در گیست به‌روز کنید.",
+        warnDeadReviewer: "توکن مشترک فیگما منقضی شده یا کار نمی‌کند. تا آن را در گیست به‌روز نکنید، کسی نمی‌تواند بررسی کند.",
+        warnDeadUser: "داروغه فعلاً به فیگما وصل نمی‌شود. به تیم دیزاین سیستم خبر دهید.",
+        errLibNoAccess: "حساب فیگمای داروغه به «{lib}» دسترسی ندارد. فایل را با این حساب به اشتراک بگذارید یا لایبرری را در تنظیمات غیرفعال کنید.",
+        errLibAddNoAccess: "حساب فیگمای داروغه به این فایل دسترسی ندارد. اول فایل را با این حساب به اشتراک بگذارید.",
+        errNotAdmin: "فقط ادمین‌ها می‌توانند لایبرری اضافه کنند.", libAdminOnly: "فقط ادمین‌ها می‌توانند لایبرری اضافه یا حذف کنند.", 
+        copyLibsGist: "کپی برای گیست", libsCopied: "کپی شد. آن را در گیست (سطح اول، کنار «reviewers») بگذارید.",
+        libsGistHint: "لایبرری‌هایی که اینجا اضافه می‌کنید فقط روی دستگاه شما هستند. برای همه، آن‌ها را در گیست بگذارید.",
+        hist: "تاریخچه", histAudit_verified: "بررسی: تأیید شد", histAudit_failed: "بررسی: {n} ایراد", histAudit_empty: "بررسی: کامپوننتی نداشت",
+        histChange: "تغییر کرد", histChangeUnknown: "تغییر کرد (ویرایش‌کننده نامشخص)", histEditors: "ویرایش‌کنندگان فایل در این بازه:", selectLayer: "انتخاب لایه",
+        dAdd: "اضافه شد", dRm: "حذف شد", dSwap: "جایگزین شد", dVar: "واریانت", dReset: "اوراید ریست شد", dOther: "لایه‌های بیرون از کامپوننت‌ها تغییر کردند", dMore: "و {n} تغییر دیگر", dNone: "هیچ",
         verification: "تأیید داروغه", refresh: "به‌روزرسانی", verifyTitle: "تأیید داروغه",
-        verifyDevHint: "یک فریم را انتخاب کنید تا ببینید داروغه آن را تأیید کرده و آیا پس از تأیید تغییر کرده است.",
+        verifyDevHint: "یک فریم انتخاب کنید تا وضعیت تأیید آن را ببینید.",
         verifyNoSelection: "برای دیدن وضعیت تأیید، یک فریم را روی کانواس انتخاب کنید.",
-        vs_verified: "تأییدشده توسط داروغه", vs_changed: "پس از تأیید تغییر کرده", vs_none: "تأیید نشده",
-        vs_failed: "تأیید نشد؛ ایراد دارد", vs_empty: "تأیید نشد؛ کامپوننتی برای بررسی ندارد", vs_error: "ثبت تأیید انجام نشد", vs_outdated: "نیاز به بررسی دوباره",
-        vOutdatedHint: "با نسخهٔ قدیمی‌تر داروغه تأیید شده",
-        vBy: "توسط", vIssues: "ایراد باید رفع شود", vReaudit: "برای تأیید دوباره، فریم را دوباره بررسی کنید", vSaved: "تأیید روی فریم ثبت شد",
-        vNoneHint: "اگر بررسی بدون ایراد باشد، فریم تأیید می‌شود", markReady: "آماده پیاده‌سازی", readyForDev: "آماده پیاده‌سازی", completed: "پیاده‌سازی‌شده",
-        readyOk: "به‌عنوان آماده پیاده‌سازی علامت خورد: ", readyFail: "علامت‌گذاری انجام نشد: ",
+        vs_verified: "تأییدشده", vs_changed: "پس از تأیید تغییر کرده", vs_none: "تأیید نشده",
+        vs_failed: "تأیید نشد؛ ایراد دارد", vs_empty: "تأیید نشد؛ کامپوننتی ندارد", vs_error: "ثبت تأیید انجام نشد", vs_outdated: "نیاز به بررسی دوباره",
+        vOutdatedHint: "با نسخهٔ قدیمی داروغه تأیید شده است",
+        vBy: "توسط", vIssues: "ایراد باید رفع شود", vReaudit: "دوباره بررسی کنید تا تأیید شود", vSaved: "تأیید روی فریم ثبت شد",
+        vNoneHint: "اگر بررسی بدون ایراد باشد، فریم تأیید می‌شود", markReady: "آمادهٔ توسعه", readyForDev: "آمادهٔ توسعه", completed: "تکمیل‌شده",
+        readyOk: "علامت «آمادهٔ توسعه» خورد: ", readyFail: "علامت‌گذاری انجام نشد: ",
+        errFrameNotFound: "این فریم دیگر وجود ندارد. دوباره انتخابش کنید.",
+        errNoFrames: "چیزی برای بررسی نیست. یک فریم، گروه یا اینستنس انتخاب کنید.",
+        errDsFetch: "کامپوننت‌های دیزاین سیستم دریافت نشد. اتصال اینترنت را بررسی کنید و دوباره امتحان کنید.",
+        warnings: "هشدارها",
+        rRaw: "استایل بدون توکن، بیرون از کامپوننت",
+        noWarnTitle: "هشداری نیست",
+        noWarnSub: "همهٔ لایه‌های بیرون از کامپوننت از توکن استفاده می‌کنند.",
+        f_textStyle: "بدون تکست‌استایل",
+        fixRawText: "تکست‌استایل بگذارید",
+        noteRawMore: "فقط {n} هشدار اول نمایش داده شده است.",
       }
     };
 
@@ -1117,11 +1159,11 @@
 
     // Public edition: English only, plus copy that differs from the team build.
     var PUBLIC_EN = {
-      tutIntro: "Darooghe checks every component in a frame against your design system and shows exactly what's off. Three steps to your first audit:",
+      tutIntro: "Darooghe checks the components in a frame against your design system and shows what to fix.",
       tutS1Title: "Register your library",
-      tutS1Text: "Open your design system library file, run Darooghe and press Settings → Register this file. Do it once per library (and again after you publish changes).",
+      tutS1Text: "In your library file, open Darooghe → Settings → Register this file. Repeat after you publish changes.",
       reviewerHintYes: "Anyone can accept an issue as an exception. Your Figma name, the date and your note are saved on the layer.",
-      noLibraries: "No design system library registered yet. Open your library file and press Settings → Register this file.",
+      noLibraries: "No library registered yet. Open your library file and press Settings → Register this file.",
       registerLib: "Register this file as a library", registerLibHint: "Run this inside your design system library file. Darooghe saves its components on this device, so audits in other files need no token. Re-register after you publish library changes.",
       registering: "Reading components…", registered: "\"{name}\" registered — {n} components.", registeredUpdate: "\"{name}\" updated — {n} components.",
       regNoComponents: "This file has no components. Open your design system library file and try again.",
@@ -1130,8 +1172,14 @@
       emailLabel: "Email", subscribe: "Subscribe", consent: "I agree to receive emails about Darooghe.",
       subOk: "Thanks! You're on the list.", subFail: "Couldn't subscribe right now. Please try again later.",
       subInvalid: "Enter a valid email and tick the box.", feedback: "Questions or feedback?",
+        tutS2Title: "Select and run",
+        tutS2Text: "Select a frame or section on the canvas and press Run audit.",
+
     };
     if (EDITION === "public") { for (var pk in PUBLIC_EN) { I18N.en[pk] = PUBLIC_EN[pk]; } }
+
+    // «…» in Persian, “…” in English.
+    function quote(str) { return state.lang === "fa" ? "«" + str + "»" : "“" + str + "”"; }
 
     function t(key) {
       var s = (I18N[state.lang] && I18N[state.lang][key]) || I18N.en[key] || key;
@@ -1140,15 +1188,15 @@
 
     var REASON_META = {
       missing_main:     { code: "MIS", cls: "danger",  labelKey: "rMissing",     fixKey: "fixMissing" },
+      detached:         { code: "DET", cls: "danger",  labelKey: "rDetached",    fixKey: "fixDetached" },
       external_library: { code: "EXT", cls: "danger",  labelKey: "rExternal",    fixKey: "fixExternal" },
       outdated:         { code: "OLD", cls: "warning", labelKey: "rOutdated",    fixKey: "fixOutdated" },
       local_component:  { code: "LOC", cls: "danger",  labelKey: "rLocal",       fixKey: "fixLocal" },
       unpublished:      { code: "UNP", cls: "warning", labelKey: "rUnpublished", fixKey: "fixUnpublished" },
       ds_overridden:    { code: "MOD", cls: "warning", labelKey: "rModified",    fixKey: null },
     };
-    REASON_META.detached = REASON_META.missing_main; // results from older versions
-    var REASON_ORDER = ["missing_main", "external_library", "outdated", "local_component", "unpublished", "ds_overridden"];
-    if (EDITION === "public") { REASON_ORDER.splice(2, 1); } // OLD needs the REST lookup (team build only)
+    var REASON_ORDER = ["missing_main", "detached", "external_library", "outdated", "local_component", "unpublished", "ds_overridden"];
+    if (EDITION === "public") { REASON_ORDER.splice(REASON_ORDER.indexOf("outdated"), 1); } // OLD needs the REST lookup (team build only)
 
     function syncTab(el, on) {
       el.classList.toggle("is-active", on);
@@ -1166,7 +1214,6 @@
     });
 
     function reasonKey(reason) {
-      if (reason === "detached") { return "missing_main"; }
       return REASON_META[reason] ? reason : "missing_main";
     }
 
@@ -1203,6 +1250,7 @@
       "Padding": "f_padding", "Gap / Item Spacing": "f_gap", "Dimensions": "f_size", "Corner Radius": "f_radius",
       "Effects / Shadow": "f_effects", "Font Family": "f_fontFamily", "Font Size": "f_fontSize", "Font Weight": "f_fontWeight",
       "Letter Spacing": "f_letterSpacing", "Line Height": "f_lineHeight", "Text Case": "f_textCase", "Text Decoration": "f_textDecoration",
+      "Swapped Component": "f_swap", "Text Style": "f_textStyle",
     };
     function fieldLabel(field) { return FIELD_KEYS[field] ? t(FIELD_KEYS[field]) : field; }
 
@@ -1277,6 +1325,7 @@
       progress        : $("js-progress"),
       resultsEmpty    : $("js-results-empty"),
       resultsContent  : $("js-results-content"),
+      auditNotes      : $("js-audit-notes"),
       gotoAuditBtn    : $("js-goto-audit-btn"),
       resultTitle     : $("js-result-title"),
       scoreNum        : $("js-score-num"),
@@ -1319,11 +1368,13 @@
       idStatus        : $("js-id-status"),
       badgeInvalid    : $("js-badge-invalid"),
       badgeValid      : $("js-badge-valid"),
+      badgeWarn       : $("js-badge-warn"),
       search          : $("js-search"),
       instanceList    : $("js-instance-list"),
       auditMeta       : $("js-audit-meta"),
       selectAllBtn    : $("js-select-all-btn"),
       reauditBtn      : $("js-reaudit-btn"),
+      exportBtn       : $("js-export-btn"),
       versionText3    : $("js-version-text-3"),
       changelogBtn    : $("js-changelog-btn"),
       themeBtn        : $("js-theme-btn"),
@@ -1375,6 +1426,7 @@
     var ICON_PATHS = {
       scan:        '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="11.5" cy="11.5" r="3.5"/><path d="m16.5 16.5-2.5-2.5"/>',
       refresh:     '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+      download:    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
       pencil:      '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
       alert:       '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
       checkCircle: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
@@ -1482,6 +1534,8 @@
       for (var q = 0; q < lbls.length; q++) { lbls[q].setAttribute("aria-label", t(lbls[q].getAttribute("data-i18n-label"))); }
       var closeBtns = document.querySelectorAll(".modal__close");
       for (var cb = 0; cb < closeBtns.length; cb++) { closeBtns[cb].setAttribute("aria-label", t("close")); }
+      var stepNums = document.querySelectorAll(".tut-step__num");
+      for (var sn = 0; sn < stepNums.length; sn++) { stepNums[sn].textContent = num(sn + 1); }
 
       // Re-render dynamic pieces
       if (!state.selectedId) { dom.selectorLabel.textContent = t("chooseFrame"); } else { renderTargetLabel(); }
@@ -1536,6 +1590,7 @@
     dom.refreshBtn.addEventListener("click", loadFrames);
     dom.runBtn.addEventListener("click", runAudit);
     dom.reauditBtn.addEventListener("click", runAudit);
+    dom.exportBtn.addEventListener("click", exportAuditCsv);
 
     dom.changelogBtn.addEventListener("click", openModal);
     dom.modalClose.addEventListener("click", closeModal);
@@ -1608,7 +1663,7 @@
       if (!msg) { return; }
       if (msg.type === "VERSION_INFO")          { setVersion(msg.version); }
       if (msg.type === "FRAMES_LIST")           { handleFramesList(msg); }
-      if (msg.type === "STATUS")                { showStatus("info", msg.text, true); }
+      if (msg.type === "STATUS")                { showStatus("info", statusText(msg), true); }
       if (msg.type === "ERROR")                 { dom.runBtn.disabled = false; showStatus("error", errorText(msg), false); hideProgress(); }
       if (msg.type === "AUDIT_RESULT")          { handleAuditResult(msg); }
       if (msg.type === "CANVAS_FRAME_SELECTED") { handleCanvasFrameSelected(msg); }
@@ -1670,6 +1725,9 @@
       if (msg.code === "token_missing" || msg.code === "token_expired" || msg.code === "token_invalid") { return state.user.isAdmin ? t("warnDeadReviewer") : t("warnDeadUser"); }
       if (msg.code === "no_libraries") { return t("noLibraries"); }
       if (msg.code === "lib_no_access") { return t("errLibNoAccess").replace("{lib}", msg.lib || ""); }
+      if (msg.code === "frame_not_found") { return t("errFrameNotFound"); }
+      if (msg.code === "no_frames")       { return t("errNoFrames"); }
+      if (msg.code === "ds_fetch")        { return t("errDsFetch"); }
       return msg.text || "";
     }
 
@@ -1768,6 +1826,8 @@
       else if (e.key === "Escape") { e.preventDefault(); closeDropdown(true); }
     });
 
+    function targetTypeLabel(type) { return (type === "SECTION" || type === "GROUP" || type === "INSTANCE") ? type : "FRAME"; }
+
     function renderDropdown(frames) {
       dom.frameDropdown.innerHTML = "";
       if (!frames || !frames.length) {
@@ -1781,7 +1841,7 @@
           var isSel = state.selectedIds.indexOf(frame.id) !== -1;
           el.className = "dropdown__opt" + (isSel ? " is-selected" : "");
           el.setAttribute("role", "option"); el.setAttribute("aria-selected", isSel ? "true" : "false");
-          var typeEl = document.createElement("span"); typeEl.className = "dropdown__type"; typeEl.textContent = frame.type === "SECTION" ? "SECTION" : "FRAME";
+          var typeEl = document.createElement("span"); typeEl.className = "dropdown__type"; typeEl.textContent = targetTypeLabel(frame.type);
           var nameEl = document.createElement("span"); nameEl.textContent = frame.name; nameEl.style.overflow = "hidden"; nameEl.style.textOverflow = "ellipsis"; nameEl.style.whiteSpace = "nowrap";
           el.appendChild(typeEl); el.appendChild(nameEl);
           el.addEventListener("click", function(e) { e.stopPropagation(); selectFrame(frame.id, frame.name, frame.type); closeDropdown(true); });
@@ -1812,7 +1872,7 @@
       dom.selectorLabel.className   = "target__label";
       dom.selectorLabel.textContent = n > 1 ? t("nFrames").replace("{n}", num(n)) : state.selectedNames[0];
       dom.selectorLabel.title       = n > 1 ? state.selectedNames.join(state.lang === "fa" ? "، " : ", ") : "";
-      dom.selectorType.textContent  = n > 1 ? t("nFramesType").replace("{n}", num(n)) : (state.selectedType === "SECTION" ? "SECTION" : "FRAME");
+      dom.selectorType.textContent  = n > 1 ? t("nFramesType").replace("{n}", num(n)) : targetTypeLabel(state.selectedType);
       dom.selectorSrc.hidden        = !state.fromCanvas;
     }
 
@@ -1851,12 +1911,15 @@
 
     function handleSelectionChanged(msg) {
       if (!state.auditData) { return; }
-      var inInvalid = false, inValid = false;
+      var inInvalid = false, inValid = false, inWarn = false;
+      var warns = state.auditData.warnings || [];
+      for (var w = 0; w < warns.length; w++) { if (warns[w].id === msg.nodeId) { inWarn = true; break; } }
       for (var i = 0; i < state.auditData.invalidInstances.length; i++) { if (state.auditData.invalidInstances[i].id === msg.nodeId) { inInvalid = true; break; } }
       for (var j = 0; j < state.auditData.validInstances.length; j++)   { if (state.auditData.validInstances[j].id   === msg.nodeId) { inValid   = true; break; } }
 
       if (inInvalid && state.activeTab !== "invalid") { setTab("invalid"); }
       else if (inValid && state.activeTab !== "valid") { setTab("valid"); }
+      else if (inWarn && !inInvalid && !inValid && state.activeTab !== "warn") { setTab("warn"); }
 
       var prev = dom.instanceList.querySelector(".is-highlighted");
       if (prev) { prev.classList.remove("is-highlighted"); }
@@ -1911,6 +1974,7 @@
       dom.statMod.textContent      = num(counts.mod);
       dom.badgeInvalid.textContent = num(data.invalidCount);
       dom.badgeValid.textContent   = num(data.validCount);
+      dom.badgeWarn.textContent    = num((data.warnings || []).length);
       dom.segOk.style.flexGrow  = ok;          dom.segOk.hidden  = !ok;
       dom.segRes.style.flexGrow = res;         dom.segRes.hidden = !res;
       dom.segMod.style.flexGrow = counts.mod;  dom.segMod.hidden = !counts.mod;
@@ -1926,24 +1990,41 @@
       }
 
       renderVerifyList(dom.auditVerify, data.frames || [], { clickable: true, fromAudit: true });
+      renderAuditNotes(data.notes || []);
 
       dom.resultsEmpty.style.display = "none";
       dom.resultsContent.style.display = "flex";
       renderList();
     }
 
+    // Things that make this result less certain (offline DS list, unanswered library lookups).
+    function renderAuditNotes(notes) {
+      dom.auditNotes.innerHTML = "";
+      for (var i = 0; i < notes.length; i++) {
+        var n = notes[i], txt = null;
+        if (n.code === "ds_cached")     { txt = t("noteDsCached").replace("{lib}", n.lib || "").replace("{when}", formatWhen(n.at)); }
+        if (n.code === "lookup_failed") { txt = t("noteLookupFailed").replace("{n}", num(n.n)); }
+        if (n.code === "raw_more")      { txt = t("noteRawMore").replace("{n}", num(n.n)); }
+        if (!txt) { continue; }
+        var el = addDiv(dom.auditNotes, "audit-note");
+        el.appendChild(icoEl("alert", "sm"));
+        addSpan(el, "", txt);
+      }
+    }
+
     function renderList() {
       var data = state.auditData;
       if (!data) { return; }
       state.nodeMap = {};
-      var items    = state.activeTab === "invalid" ? data.invalidInstances : data.validInstances;
+      var warnTab  = state.activeTab === "warn";
+      var items    = state.activeTab === "invalid" ? data.invalidInstances : (warnTab ? (data.warnings || []) : data.validInstances);
       renderTypeFilter(data.invalidInstances);
       var filtered = [];
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         if (state.activeTab === "invalid" && state.issueFilter !== "all" && reasonKey(item.reason) !== state.issueFilter) { continue; }
         if (!state.searchQuery) { filtered.push(item); continue; }
-        var hay = normalizeSearch([item.name, item.componentName, item.variantName, item.dsName, item.path].join(" "));
+        var hay = normalizeSearch([item.name, item.componentName, item.variantName, item.dsName, item.path, item.parent ? item.parent.name : ""].join(" "));
         if (hay.indexOf(state.searchQuery) > -1) { filtered.push(item); }
       }
       dom.instanceList.innerHTML = "";
@@ -1951,10 +2032,10 @@
         var empty = document.createElement("div");
         empty.className = "empty";
         var tt = document.createElement("span"); tt.className = "empty__title";
-        tt.textContent = state.activeTab === "invalid" ? t("noIssuesTitle") : t("noValidTitle");
+        tt.textContent = state.activeTab === "invalid" ? t("noIssuesTitle") : (warnTab ? t("noWarnTitle") : t("noValidTitle"));
         empty.appendChild(tt);
-        if (state.activeTab === "invalid") {
-          var s = document.createElement("span"); s.textContent = t("noIssuesSub"); empty.appendChild(s);
+        if (state.activeTab === "invalid" || warnTab) {
+          var s = document.createElement("span"); s.textContent = t(warnTab ? "noWarnSub" : "noIssuesSub"); empty.appendChild(s);
         }
         dom.instanceList.appendChild(empty); return;
       }
@@ -1979,7 +2060,7 @@
         groups[pName].push(itm);
       }
       for (var k = 0; k < groupOrder.length; k++) {
-        dom.instanceList.appendChild(buildGroup(groupOrder[k], groups[groupOrder[k]], false));
+        dom.instanceList.appendChild(buildGroup(groupOrder[k], groups[groupOrder[k]], warnTab ? "warn" : false, warnTab ? RAW_META : null));
       }
     }
 
@@ -1992,7 +2073,7 @@
       var body   = document.createElement("div"); body.className = "group__body is-open";
       body.id = "grp-" + Math.random().toString(36).slice(2, 9);
       header.setAttribute("aria-expanded", "true"); header.setAttribute("aria-controls", body.id);
-      var countClass = isInvalid ? "group__count--danger" : "group__count--success";
+      var countClass = isInvalid === "warn" ? "group__count--warning" : (isInvalid ? "group__count--danger" : "group__count--success");
       if (reasonMeta) {
         var codeTag = document.createElement("span"); codeTag.className = "group__code group__code--" + reasonMeta.cls; codeTag.textContent = reasonMeta.code;
         header.appendChild(codeTag);
@@ -2008,6 +2089,7 @@
     }
 
     function buildInstanceItem(item, isInvalid) {
+      if (isInvalid === "warn") { return buildWarnItem(item); }
       return isInvalid ? buildIssueItem(item) : buildPassedItem(item);
     }
 
@@ -2029,7 +2111,7 @@
         res.appendChild(document.createTextNode(t("resolvedBy") + " " + (item.resolved.by || "—") + " · " + formatWhen(item.resolved.at)));
         if (item.resolved.note) {
           res.appendChild(document.createTextNode(" — "));
-          addSpan(res, "item__resolved-note", "“" + item.resolved.note + "”");
+          addSpan(res, "item__resolved-note", quote(item.resolved.note));
         }
         if (canResolve(reasonKey(issue.reason))) {
           var undo = document.createElement("button"); undo.className = "item__link"; undo.appendChild(icoEl("undo", "sm")); undo.appendChild(document.createTextNode(" " + t("unresolve")));
@@ -2157,12 +2239,6 @@
       dom.contactLink.href = "mailto:" + CONTACT_EMAIL;
       var rev = document.getElementById("js-reviewer-panel");
       if (rev) { rev.hidden = pub; }
-      var s1 = document.getElementById("js-tut-s1");
-      if (s1) {
-        s1.hidden = !pub;
-        var nums = document.querySelectorAll(".tut-step:not([hidden]) .tut-step__num");
-        for (var i = 0; i < nums.length; i++) { nums[i].textContent = String(i + 1); }
-      }
     }
 
     function subscribe() {
@@ -2184,12 +2260,69 @@
       dom.reportStatus.querySelector("span").textContent = text;
     }
 
-    var REASON_CODE = { ds_overridden: "MOD", unpublished: "UNP", external_library: "EXT", local_component: "LOC", missing_main: "MIS" };
+    var REASON_CODE = { ds_overridden: "MOD", unpublished: "UNP", external_library: "EXT", local_component: "LOC", missing_main: "MIS", outdated: "OLD", detached: "DET", raw: "RAW" };
 
     function csvCell(v) {
       var s = String(v == null ? "" : v);
       if (/^[=+\-@]/.test(s)) { s = "'" + s; }           // keep spreadsheets from running it as a formula
       return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    function csvFileStem(fileName) {
+      return String(fileName || "file").replace(/[\\/:*?"<>|]+/g, "_") + "-" + new Date().toISOString().slice(0, 10);
+    }
+
+    // BOM + CRLF so Excel opens Persian text correctly. Returns the CSV text.
+    function downloadCsv(stem, lines) {
+      var csv = "\uFEFF" + lines.join("\r\n");
+      try {
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        a.download = stem + ".csv";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(a.href); }, 2000);
+      } catch (e) {}
+      return csv;
+    }
+
+    function nodeLink(fileKey, nodeId) {
+      return fileKey ? "https://www.figma.com/design/" + fileKey + "/?node-id=" + encodeURIComponent(String(nodeId).replace(":", "-")) : nodeId;
+    }
+
+    function overridesText(overrides) {
+      var out = [];
+      for (var i = 0; i < (overrides || []).length; i++) {
+        var o = overrides[i];
+        out.push(o.node + " › " + o.field + (o.value ? " " + o.value : ""));
+      }
+      return out.join("; ");
+    }
+
+    // The current audit as a sheet: every issue (open or accepted) and every passed instance.
+    function exportAuditCsv() {
+      var d = state.auditData;
+      if (!d) { return; }
+      var head = ["Status", "Issue", "Component", "Variant", "Layer", "Where", "Details", "Source", "Accepted by", "Note", "Link"];
+      var lines = [head.join(",")];
+      var row = function(status, issue, item, extra) {
+        lines.push([status, issue ? (REASON_CODE[issue.reason] || issue.reason) : "", (issue && issue.componentName) || item.componentName || item.dsName || "",
+          (issue && issue.variantName) || item.variantName || "", item.name, item.path || "", issue ? overridesText(issue.overrides) : "",
+          (issue && issue.source) || item.dsSource || "", extra.by || "", extra.note || "", nodeLink(d.fileKey, item.id)].map(csvCell).join(","));
+      };
+      for (var i = 0; i < d.invalidInstances.length; i++) {
+        var it = d.invalidInstances[i];
+        row(it.unverified ? "open (unverified)" : "open", it, it, {});
+      }
+      for (var j = 0; j < d.validInstances.length; j++) {
+        var v = d.validInstances[j];
+        if (v.resolved) { row("accepted", v.resolvedIssue || null, v, v.resolved); } else { row("ok", null, v, {}); }
+      }
+      var warns = d.warnings || [];
+      for (var w = 0; w < warns.length; w++) {
+        row("warning", { reason: "raw", componentName: "", overrides: warns[w].problems }, warns[w], {});
+      }
+      downloadCsv("darooghe-audit-" + csvFileStem(d.fileName || d.frameName), lines);
+      showResultsStatus("success", t("exportDone").replace("{n}", num(lines.length - 1)));
     }
 
     function handleResolutionsReport(msg) {
@@ -2202,20 +2335,11 @@
       for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
         if (r.status === "active") { active++; }
-        var link = msg.fileKey ? "https://www.figma.com/design/" + msg.fileKey + "/?node-id=" + encodeURIComponent(r.nodeId.replace(":", "-")) : r.nodeId;
+        var link = nodeLink(msg.fileKey, r.nodeId);
         lines.push([r.page, r.frame, r.layer, r.component, r.variant, REASON_CODE[r.reason] || r.reason, r.status, r.by, (r.at || "").slice(0, 10), r.note, link].map(csvCell).join(","));
       }
-      var csv = "\uFEFF" + lines.join("\r\n");
-      state.reportCsv = csv;
+      state.reportCsv = downloadCsv("darooghe-exceptions-" + csvFileStem(msg.fileName), lines);
       dom.reportCopy.hidden = false;
-      var name = "darooghe-exceptions-" + String(msg.fileName || "file").replace(/[\\/:*?"<>|]+/g, "_") + "-" + new Date().toISOString().slice(0, 10) + ".csv";
-      try {
-        var a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-        a.download = name;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(function() { URL.revokeObjectURL(a.href); }, 2000);
-      } catch (e) {}
       showReportStatus("success", t("reportDone").replace("{n}", num(rows.length)).replace("{a}", num(active)).replace("{s}", num(rows.length - active)));
     }
 
@@ -2324,20 +2448,22 @@
         var gk = (o.nodeId || "") + "|" + layer;
         if (!byLayer[gk]) { byLayer[gk] = { layer: layer, nodeId: o.nodeId || null, items: [] }; out.push(byLayer[gk]); }
         layer = gk;
-        byLayer[layer].items.push({ field: o.field, value: o.value || "", raw: (o.field === "Fill Color" || o.field === "Stroke Color" || o.field === "Opacity") });
+        byLayer[layer].items.push({ field: o.field, value: o.value || "", raw: ((o.field === "Fill Color" || o.field === "Stroke Color") && /^#/.test(o.value || "")) || o.field === "Opacity" });
       }
       return out;
     }
 
     function modFixText(overrides) {
-      var color = false, type = false, other = false;
+      var color = false, type = false, other = false, swap = false;
       for (var i = 0; i < (overrides || []).length; i++) {
         var o = overrides[i] || {};
-        if (o.field === "Fill Color" || o.field === "Stroke Color") { color = true; }
+        if (o.type === "swap") { swap = true; }
+        else if (o.field === "Fill Color" || o.field === "Stroke Color") { color = true; }
         else if (o.type === "typography") { type = true; }
         else { other = true; }
       }
       var parts = [];
+      if (swap)  { parts.push(t("fixModSwap")); }
       if (color) { parts.push(t("fixModColor")); }
       if (type)  { parts.push(t("fixModType")); }
       if (other || !parts.length) { parts.push(t("fixModReset")); }
@@ -2345,9 +2471,45 @@
       return txt.charAt(0).toUpperCase() + txt.slice(1) + ".";
     }
 
+    // RAW warning: a layer outside components with raw styles. One row per layer, one line per property.
+    var RAW_META = { code: "RAW", cls: "warning", labelKey: "rRaw" };
+    function rawFixText(problems) {
+      var color = false, type = false;
+      for (var i = 0; i < problems.length; i++) {
+        if (problems[i].type === "typography") { type = true; } else { color = true; }
+      }
+      var parts = [];
+      if (color) { parts.push(t("fixModColor")); }
+      if (type)  { parts.push(t("fixRawText")); }
+      var txt = parts.join(state.lang === "fa" ? "؛ " : "; ");
+      return txt.charAt(0).toUpperCase() + txt.slice(1) + ".";
+    }
+
+    function buildWarnItem(item) {
+      var el = document.createElement("div"); el.className = "item item--issue"; el.title = t("clickToHighlight");
+      var bodyEl = document.createElement("div"); bodyEl.className = "item__body";
+      var title = addDiv(bodyEl, "item__title");
+      addSpan(title, "item__name", item.name).dir = "auto";
+      addSpan(title, "item__layer", item.nodeType ? item.nodeType.toLowerCase() : "");
+      var details = addDiv(bodyEl, "item__details");
+      var line = addDiv(details, "item__detail");
+      for (var k = 0; k < item.problems.length; k++) {
+        var it = item.problems[k];
+        if (k > 0) { line.appendChild(document.createTextNode(" · ")); }
+        line.appendChild(document.createTextNode(fieldLabel(it.field) + (it.value ? " " : "")));
+        if (it.value) { addSpan(line, "item__detail-value", it.value); }
+      }
+      var fix = addDiv(bodyEl, "item__fix");
+      var b = document.createElement("b"); b.appendChild(document.createTextNode(t("fixLabel"))); fix.appendChild(b);
+      fix.appendChild(document.createTextNode(rawFixText(item.problems)));
+      el.appendChild(bodyEl); el.appendChild(gotoButton(item));
+      el.addEventListener("click", function() { focusCanvas(item.id); });
+      return el;
+    }
+
     function buildIssueItem(item) {
-      var key  = item.reason === "detached" ? "missing_main" : item.reason;
-      var meta = REASON_META[key] || REASON_META.missing_main;
+      var key  = reasonKey(item.reason);
+      var meta = REASON_META[key];
 
       var el = document.createElement("div"); el.className = "item item--issue"; el.title = t("clickToHighlight");
       var bodyEl = document.createElement("div"); bodyEl.className = "item__body";
@@ -2357,7 +2519,7 @@
       var compName = item.componentName || item.mainComponentName || item.name;
       addSpan(title, "item__name", compName).dir = "auto";
       if (item.name && item.name !== compName && item.name !== item.mainComponentName) {
-        addSpan(title, "item__layer", t("layerLabel") + " “" + item.name + "”");
+        addSpan(title, "item__layer", t("layerLabel") + " " + quote(item.name));
       }
       // Where: frame path, at the end of the title row (saves a line)
       if (item.parent && item.parent.name) {
@@ -2371,8 +2533,9 @@
         var src = addDiv(bodyEl, "item__variant", "");
         src.appendChild(document.createTextNode(t("fromLib") + ": ")); src.appendChild(bdi(item.source));
       }
+      if (item.unverified) { addDiv(bodyEl, "item__unverified", t("unverifiedSrc")); }
       // Component properties only matter when they are the problem (overrides)
-      if (key === "ds_overridden" && item.variantName) { addDiv(bodyEl, "item__variant", item.variantName); }
+      if ((key === "ds_overridden" || key === "detached") && item.variantName) { addDiv(bodyEl, "item__variant", item.variantName); }
 
       // Exactly what changed (overrides): layer › property value
       if (key === "ds_overridden" && item.overrides && item.overrides.length) {
@@ -2648,6 +2811,11 @@
     }
 
     // ── Helpers ───────────────────────────────────────────────
+    // Plugin progress messages: localised when the plugin sends a code (st_*), else its English text.
+    function statusText(msg) {
+      if (!msg.code || !I18N.en[msg.code]) { return msg.text; }
+      return t(msg.code).replace("{n}", num(msg.n || 0)).replace("{total}", num(msg.total || 0));
+    }
     function showStatus(type, text, withSpinner) { dom.status.className = "status is-visible status--" + type; dom.statusText.textContent = text; dom.spinner.style.display = withSpinner ? "block" : "none"; }
     function hideStatus()   { dom.status.className = "status"; }
     function showProgress() { dom.progress.classList.add("is-visible"); }

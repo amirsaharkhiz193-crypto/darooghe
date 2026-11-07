@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.10.0** · [Figma Community](#) · Free
+**Version 2.11.0** · [Figma Community](#) · Free
 
 ---
 
@@ -35,13 +35,18 @@ Re-register a library after you publish changes to it. Registered libraries are 
 
 | Code | Meaning |
 |---|---|
-| `MOD` | A design system component with hard-coded overrides (colour, font, stroke, spacing, radius, effects, opacity) |
+| `MOD` | A design system component with hard-coded overrides (colour, gradient, removed fill, font, stroke, spacing, radius, effects, opacity), or a nested part swapped to a component outside your design system |
 | `LOC` | A local component instead of a library component |
 | `EXT` | A component from a library you haven't registered |
 | `UNP` | An internal part (`_Name`) used directly |
 | `MIS` | An instance whose main component is gone |
+| `DET` | A layer detached from a library component |
 
-Variables-bound fills and strokes are fine. Text content and size changes are ignored.
+Values from variables or styles are fine, and so are overrides on hidden layers. Text content and layout-driven size changes are ignored. Sections are audited with everything inside them.
+
+**Export CSV** saves the whole audit (issues, accepted exceptions and passed instances, with Figma links).
+
+**Warnings (`RAW`)** — layers outside components with a raw colour or text without a text style appear in a Warnings tab. They don't block verification.
 
 ### Handoff
 - **Verified stamp**: a frame with zero issues gets stamped. If it changes later, the stamp turns into *Changed since verification*. Copy edits and resizing don't count.

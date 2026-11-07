@@ -2,7 +2,7 @@
 
 var VERSION = {
   major : 2,
-  minor : 10,
+  minor : 11,
   patch : 0,
   label : "",
 };
@@ -229,7 +229,7 @@ function auditTargetFor(node) {
   var cur = node;
   while (cur && cur.parent && cur.type !== "PAGE") {
     if (cur.parent.type === "PAGE" || cur.parent.type === "SECTION") {
-      return isFrameLike(cur) ? cur : null;
+      return isAuditTarget(cur) ? cur : null;
     }
     cur = cur.parent;
   }
@@ -442,10 +442,67 @@ function handleFetchLibrary(msg) {
     .catch(function(err) { send("LIBRARY_INFO", { success: false, fileKey: msg.fileKey, error: err.message }); });
 }
 
+// Selected nodes → the top-level nodes to audit. Sections (also nested ones) expand to their contents;
+// hidden ones are skipped. Duplicates and targets inside another target are dropped, so nothing counts twice.
+function isAuditTarget(node) {
+  return isFrameLike(node) || (!!node && (node.type === "GROUP" || node.type === "INSTANCE"));
+}
+
+function expandTargets(nodes) {
+  var out = [];
+  function add(n) {
+    if (!n || n.visible === false) { return; }
+    if (n.type === "SECTION") {
+      for (var i = 0; i < n.children.length; i++) { add(n.children[i]); }
+    } else if (isAuditTarget(n)) { out.push(n); }
+  }
+  for (var j = 0; j < nodes.length; j++) { add(nodes[j]); }
+  var ids = {};
+  for (var k = 0; k < out.length; k++) { ids[out[k].id] = true; }
+  var seen = {}, res = [];
+  for (var m = 0; m < out.length; m++) {
+    var node = out[m];
+    if (seen[node.id]) { continue; }
+    var p = node.parent, inside = false;
+    while (p && p.type !== "PAGE") { if (ids[p.id]) { inside = true; break; } p = p.parent; }
+    if (inside) { continue; }
+    seen[node.id] = true;
+    res.push(node);
+  }
+  return res;
+}
+
+var AUDIT_CONCURRENCY = 16;   // instances analysed at the same time
+var MAIN_RETRY_MS     = [400, 900, 1600];   // waits before asking again for a main component that came back empty
+
+// Runs worker(item) for every item, at most `limit` at once. Never rejects.
+function runPool(items, limit, worker, onProgress) {
+  return new Promise(function(resolve) {
+    var next = 0, active = 0, done = 0;
+    if (!items.length) { resolve(); return; }
+    function launch() {
+      while (active < limit && next < items.length) {
+        var item = items[next++];
+        active++;
+        var p;
+        try { p = Promise.resolve(worker(item)); } catch(e) { p = Promise.resolve(); }
+        p.then(settle, settle);
+      }
+    }
+    function settle() {
+      active--; done++;
+      if (onProgress) { try { onProgress(done, items.length); } catch(e) {} }
+      if (done === items.length) { resolve(); } else { launch(); }
+    }
+    launch();
+  });
+}
+
 function handleRunAudit(msg) {
-  sendStatus("Fetching Design System components...");
+  sendStatus("Fetching Design System components...", "st_fetch");
 
   var figmaToken = null;
+  var notes = [];          // things the user should know about this result (e.g. an offline DS list)
   var libsPromise;
   var activeLibs = [];
   if (EDITION === "public") {
@@ -471,7 +528,7 @@ function handleRunAudit(msg) {
 
     var fetchPromises = [];
     for (var k = 0; k < activeLibs.length; k++) {
-      fetchPromises.push(fetchDSComponents(activeLibs[k].key, activeLibs[k].name, figmaToken));
+      fetchPromises.push(fetchDSComponents(activeLibs[k].key, activeLibs[k].name, figmaToken, notes));
     }
     libsPromise = Promise.all(fetchPromises);
   }
@@ -484,6 +541,7 @@ function handleRunAudit(msg) {
     var dsKeys        = {};
     var dsNames       = {};
     var dsSourceNames = {};
+    var dsSets        = {};   // variant key → component set name
     var totalCount    = 0;
 
     for (var r = 0; r < results.length; r++) {
@@ -492,11 +550,12 @@ function handleRunAudit(msg) {
         dsKeys[components[c].key]        = true;
         dsNames[components[c].key]       = components[c].name;
         dsSourceNames[components[c].key] = components[c].sourceName;
+        if (components[c].set) { dsSets[components[c].key] = components[c].set; }
         totalCount++;
       }
     }
 
-    sendStatus(totalCount + " DS components loaded — scanning...");
+    sendStatus(totalCount + " DS components loaded — scanning...", "st_loaded", { n: totalCount });
 
     // Use safe node fetching for each frame
     var frameIdsToFetch = (msg.frameIds && msg.frameIds.length > 0) ? msg.frameIds : [msg.frameId];
@@ -506,64 +565,77 @@ function handleRunAudit(msg) {
 
     return Promise.all(nodePromises).then(function(targetFrames) {
       var validFrames = targetFrames.filter(function(n) { return n !== null; });
-      if (!validFrames.length) { sendError("Frame not found."); return; }
+      if (!validFrames.length) { send("ERROR", { text: "Frame not found.", code: "frame_not_found" }); return; }
 
-      var finalFrames = [];
-      for (var t = 0; t < validFrames.length; t++) {
-        var tf = validFrames[t];
-        if (tf.type === "SECTION") {
-          for (var s = 0; s < tf.children.length; s++) {
-            var child = tf.children[s];
-            if (
-              child.type === "FRAME"         ||
-              child.type === "COMPONENT"     ||
-              child.type === "COMPONENT_SET"
-            ) { finalFrames.push(child); }
-          }
-        } else {
-          finalFrames.push(tf);
-        }
-      }
+      var finalFrames = expandTargets(validFrames);
 
-      if (!finalFrames.length) { sendError("No frames found to audit."); return; }
+      if (!finalFrames.length) { send("ERROR", { text: "No frames found to audit.", code: "no_frames" }); return; }
 
       var allInstances = [];
+      var allDetached  = [];
+      var rawWarnings  = [];   // layers outside components with raw (untokenised) styles — warnings, not issues
       var frameInstanceCounts = [];
       var instanceFrameIndex = {};
       for (var ff = 0; ff < finalFrames.length; ff++) {
-        var frameList = [];
-        collectInstances(finalFrames[ff], frameList);
-        frameInstanceCounts.push(frameList.length);
+        var frameList = [], frameDetached = [];
+        collectInstances(finalFrames[ff], frameList, frameDetached);
+        collectRaw(finalFrames[ff], rawWarnings);
+        frameInstanceCounts.push(frameList.length + frameDetached.length);
         for (var fl = 0; fl < frameList.length; fl++) {
           instanceFrameIndex[frameList[fl].id] = ff;
           allInstances.push(frameList[fl]);
         }
+        for (var fd = 0; fd < frameDetached.length; fd++) {
+          instanceFrameIndex[frameDetached[fd].id] = ff;
+          allDetached.push(frameDetached[fd]);
+        }
       }
 
-      sendStatus(allInstances.length + " instances found — analyzing...");
+      if (rawWarnings.length >= RAW_MAX) { notes.push({ code: "raw_more", n: RAW_MAX }); }
+      sendStatus(allInstances.length + " instances found — analyzing...", "st_found", { n: allInstances.length });
 
       var valid   = [];
       var invalid = [];
-      var index   = 0;
       var deferred = [];        // remote components not in the DS list: looked up together after the scan
-      var deferredDone = false;
+      var unverified = 0;       // of those, how many the API couldn't confirm
+      var pendingMain = [];     // no main component yet: asked again before they count as MIS
+      var order    = {};
+      for (var oi = 0; oi < allInstances.length; oi++) { order[allInstances[oi].id] = oi; }
+      for (var od = 0; od < allDetached.length; od++) { order[allDetached[od].id] = allInstances.length + od; }
+      // Detached from a library component: always an issue (DET), named after the component when it's in the DS list.
+      for (var di = 0; di < allDetached.length; di++) {
+        invalid.push(buildDetachedItem(allDetached[di], dsNames, dsSets));
+      }
 
       // All lookups in parallel (cached per key), then classify each instance like the main pass.
       function resolveDeferred() {
-        sendStatus("Checking " + deferred.length + " component(s) from other files…");
+        sendStatus("Checking " + deferred.length + " component(s) from other files…", "st_remote", { n: deferred.length });
         return Promise.all(deferred.map(function(d) {
           return lookupRemoteComponent(d.main.key, dsFileNames).then(function(info) {
             if (info.state === "found" && dsFileNames[info.fileKey] !== undefined) {
-              if (!d.overrides.length) { valid.push(buildValidItem(d.instance, componentNames(d.main).name, dsFileNames[info.fileKey])); return; }
-              return finishIssue(d.instance, buildInvalidItem(d.instance, "ds_overridden", d.main, d.overrides), dsFileNames[info.fileKey]);
+              return finishDS(d.instance, d.main, d.overrides, componentNames(d.main).name, dsFileNames[info.fileKey]);
             }
             var issue = buildInvalidItem(d.instance, info.state === "missing" ? "outdated" : "external_library", d.main, d.overrides);
             if (info.fileName && info.state === "found") { issue.source = info.fileName; }
+            if (info.state === "unknown") { issue.unverified = true; unverified++; }   // API didn't answer: EXT is a guess
             return finishIssue(d.instance, issue, null);
           }).catch(function() {
-            invalid.push(buildInvalidItem(d.instance, "external_library", d.main, d.overrides));
+            var issue = buildInvalidItem(d.instance, "external_library", d.main, d.overrides);
+            issue.unverified = true; unverified++;
+            invalid.push(issue);
           });
-        }));
+        })).then(function() {
+          if (unverified) { notes.push({ code: "lookup_failed", n: unverified }); }
+        });
+      }
+
+      // A DS component: nested parts swapped to non-DS components count as overrides too.
+      function finishDS(instance, main, overrides, dsName, source) {
+        return findBadSwaps(instance, dsKeys, dsFileNames).then(function(swaps) {
+          var all = overrides.concat(swaps);
+          if (!all.length) { valid.push(buildValidItem(instance, dsName, source)); return; }
+          return finishIssue(instance, buildInvalidItem(instance, "ds_overridden", main, all), source || null);
+        });
       }
 
       function finishIssue(instance, issue, sourceName) {
@@ -573,123 +645,119 @@ function handleRunAudit(msg) {
             if (res.state === "stale") { issue.staleResolution = publicResolution(res.record); }
             invalid.push(issue);
           }
-        });
+        }, function() { invalid.push(issue); });
       }
 
-      function processNext() {
-        if (index >= allInstances.length && deferred.length && !deferredDone) {
-          deferredDone = true;
-          resolveDeferred().then(processNext, processNext);
-          return;
-        }
-        if (index >= allInstances.length) {
-          var auditName = finalFrames.length === 1
-            ? finalFrames[0].name
-            : finalFrames.length + " frames";
-
-          var frameIssueCounts = [];
-          for (var fi = 0; fi < finalFrames.length; fi++) { frameIssueCounts.push(0); }
-          for (var ii = 0; ii < invalid.length; ii++) {
-            var idx = instanceFrameIndex[invalid[ii].id];
-            if (idx !== undefined) { frameIssueCounts[idx]++; }
-          }
-
-          var frameResolvedCounts = [];
-          for (var fr = 0; fr < finalFrames.length; fr++) { frameResolvedCounts.push(0); }
-          for (var vr = 0; vr < valid.length; vr++) {
-            if (!valid[vr].resolved) { continue; }
-            var vIdx = instanceFrameIndex[valid[vr].id];
-            if (vIdx !== undefined) { frameResolvedCounts[vIdx]++; }
-          }
-
-          var libKeys = [];
-          for (var lk = 0; lk < activeLibs.length; lk++) { libKeys.push(activeLibs[lk].key); }
-
-          var sendResult = function(frameStates) {
-            send("AUDIT_RESULT", {
-              pluginVersion    : VERSION.string,
-              frameId          : msg.frameId || (msg.frameIds && msg.frameIds[0]),
-              frameName        : auditName,
-              totalInstances   : allInstances.length,
-              validCount       : valid.length,
-              invalidCount     : invalid.length,
-              validInstances   : valid,
-              invalidInstances : invalid,
-              frames           : frameStates,
-              auditTimestamp   : new Date().toISOString(),
-            });
-            scheduleVerifyCheck(0);
-          };
-
-          finalizeVerification(finalFrames, frameInstanceCounts, frameIssueCounts, libKeys, frameResolvedCounts)
-            .then(sendResult)
-            .catch(function() { sendResult([]); });
-          return;
-        }
-
-        var instance = allInstances[index];
-        index++;
-
-        instance.getMainComponentAsync().then(function(main) {
-          if (!main) {
-            invalid.push(buildInvalidItem(instance, "missing_main", null, []));
-            processNext();
-            return;
-          }
+      // Each instance: main component → class → issue (+ resolution). Runs AUDIT_CONCURRENCY at a time;
+      // results are put back in layer order at the end, so the list doesn't depend on timing.
+      function classify(instance) {
+        return getMain(instance).then(function(main) {
+          if (!main) { pendingMain.push(instance); return; }   // retried below before it counts as MIS
 
           var overrides = detectOverrides(instance);
 
           // Where does this component really come from? Remote keys not in the DS list are looked up
           // (team build): another library → EXT with its file name; a DS file → DS after all;
           // no longer published (old/deleted version) → OLD.
-          var classP;
-          if (isUnpublishedComponent(main))  { classP = Promise.resolve({ reason: "unpublished" }); }
-          else if (dsKeys[main.key])          { classP = Promise.resolve({ ds: true, source: dsSourceNames[main.key], dsName: dsNames[main.key] }); }
-          else if (!main.remote)              { classP = Promise.resolve({ reason: "local_component" }); }
-          else if (EDITION !== "public") {
-            deferred.push({ instance: instance, main: main, overrides: overrides });   // looked up after the scan
-            processNext();
-            return;
-          }
-          else { classP = Promise.resolve({ reason: "external_library" }); }
+          var cls;
+          if (isUnpublishedComponent(main))  { cls = { reason: "unpublished" }; }
+          else if (dsKeys[main.key])          { cls = { ds: true, source: dsSourceNames[main.key], dsName: dsNames[main.key] }; }
+          else if (!main.remote)              { cls = { reason: "local_component" }; }
+          else if (EDITION !== "public")      { deferred.push({ instance: instance, main: main, overrides: overrides }); return; }
+          else                                { cls = { reason: "external_library" }; }
 
-          classP.then(function(cls) {
-          var issue = null;
-          if (cls.ds) {
-            if (overrides.length > 0) {
-              issue = buildInvalidItem(instance, "ds_overridden", main, overrides);
-            } else {
-              valid.push(buildValidItem(instance, cls.dsName, cls.source));
-            }
-          } else {
-            issue = buildInvalidItem(instance, cls.reason, main, overrides);
-            if (cls.source) { issue.source = cls.source; }
-          }
-
-          if (!issue) { processNext(); return; }
-
+          if (cls.ds) { return finishDS(instance, main, overrides, cls.dsName, cls.source); }
+          var issue = buildInvalidItem(instance, cls.reason, main, overrides);
+          if (cls.source) { issue.source = cls.source; }
           // A DS reviewer may have approved this exact deviation (see Resolutions).
-          checkResolution(instance, issue).then(function(res) {
-            if (res.state === "resolved") {
-              valid.push(buildResolvedItem(instance, issue, res.record, dsSourceNames[main.key] || null));
-            } else {
-              if (res.state === "stale") { issue.staleResolution = publicResolution(res.record); }
-              invalid.push(issue);
-            }
-            processNext();
-          });
-          }).catch(function() {
-            invalid.push(buildInvalidItem(instance, main.remote ? "external_library" : "local_component", main, overrides));
-            processNext();
-          });
-
+          return finishIssue(instance, issue, null);
         }).catch(function() {
           invalid.push(buildInvalidItem(instance, "missing_main", null, []));
-          processNext();
         });
       }
 
-      processNext();
+      var lastProgress = 0;
+      function progress(done, total) {
+        var now = Date.now();
+        if (done < total && now - lastProgress < 250) { return; }
+        lastProgress = now;
+        sendStatus("Analyzing " + done + " / " + total + " instances…", "st_progress", { n: done, total: total });
+      }
+
+      function byLayerOrder(a, b) { return order[a.id] - order[b.id]; }
+
+      function finish() {
+        valid.sort(byLayerOrder);
+        invalid.sort(byLayerOrder);
+        lastAuditOverrides = {};
+        for (var lo = 0; lo < invalid.length; lo++) { lastAuditOverrides[invalid[lo].id] = invalid[lo].overrides || []; }
+        var auditName = finalFrames.length === 1
+          ? finalFrames[0].name
+          : finalFrames.length + " frames";
+        var frameIssueCounts = [];
+        for (var fi = 0; fi < finalFrames.length; fi++) { frameIssueCounts.push(0); }
+        for (var ii = 0; ii < invalid.length; ii++) {
+          var idx = instanceFrameIndex[invalid[ii].id];
+          if (idx !== undefined) { frameIssueCounts[idx]++; }
+        }
+
+        var frameResolvedCounts = [];
+        for (var fr = 0; fr < finalFrames.length; fr++) { frameResolvedCounts.push(0); }
+        for (var vr = 0; vr < valid.length; vr++) {
+          if (!valid[vr].resolved) { continue; }
+          var vIdx = instanceFrameIndex[valid[vr].id];
+          if (vIdx !== undefined) { frameResolvedCounts[vIdx]++; }
+        }
+
+        var libKeys = [];
+        for (var lk = 0; lk < activeLibs.length; lk++) { libKeys.push(activeLibs[lk].key); }
+
+        var sendResult = function(frameStates) {
+          send("AUDIT_RESULT", {
+            pluginVersion    : VERSION.string,
+            frameId          : msg.frameId || (msg.frameIds && msg.frameIds[0]),
+            frameName        : auditName,
+            totalInstances   : allInstances.length + allDetached.length,
+            validCount       : valid.length,
+            invalidCount     : invalid.length,
+            validInstances   : valid,
+            invalidInstances : invalid,
+            warnings         : rawWarnings,
+            frames           : frameStates,
+            notes            : notes,
+            fileKey          : currentFileKey(),
+            fileName         : figma.root ? figma.root.name : "",
+            auditTimestamp   : new Date().toISOString(),
+          });
+          scheduleVerifyCheck(0);
+        };
+
+        finalizeVerification(finalFrames, frameInstanceCounts, frameIssueCounts, libKeys, frameResolvedCounts)
+          .then(function(st) { mainMemo = null; sendResult(st); })
+          .catch(function() { mainMemo = null; sendResult([]); });
+      }
+
+      // Right after a file opens, Figma can answer "no main component" while library components are still
+      // loading. Those instances are asked again a few times (gently) before they count as MIS.
+      function retryPendingMain(round) {
+        if (!pendingMain.length) { return Promise.resolve(); }
+        if (round >= MAIN_RETRY_MS.length) {
+          for (var pm = 0; pm < pendingMain.length; pm++) { invalid.push(buildInvalidItem(pendingMain[pm], "missing_main", null, [])); }
+          pendingMain = [];
+          return Promise.resolve();
+        }
+        var batch = pendingMain;
+        pendingMain = [];
+        return new Promise(function(r) { setTimeout(r, MAIN_RETRY_MS[round]); })
+          .then(function() { return runPool(batch, 4, classify); })
+          .then(function() { return retryPendingMain(round + 1); });
+      }
+
+      mainMemo = {};
+      runPool(allInstances, AUDIT_CONCURRENCY, classify, progress)
+        .then(function() { return retryPendingMain(0); })
+        .then(function() { return deferred.length ? resolveDeferred() : null; })
+        .then(finish, finish);
 
     });
 
@@ -702,10 +770,10 @@ function handleRunAudit(msg) {
         tokenInvalid = true;
         sendTokenStatus();
         send("ERROR", { text: "", code: "token_invalid" });
-      }).catch(function() { sendError("Failed to fetch DS: " + err.message); });
+      }).catch(function() { send("ERROR", { text: "Failed to fetch DS: " + err.message, code: "ds_fetch" }); });
       return;
     }
-    sendError("Failed to fetch DS: " + err.message);
+    send("ERROR", { text: "Failed to fetch DS: " + err.message, code: "ds_fetch" });
   });
 }
 
@@ -929,10 +997,26 @@ function handleHighlightAll(msg) {
 
 // ── Fetch DS Components ───────────────────────────────────────
 
-function fetchDSComponents(fileKey, fileName, token) {
+// DS component lists are cached: in memory for DS_CACHE_MS (repeat audits skip the slow /components call),
+// and the last good list in clientStorage as a fallback when the API can't be reached. A component published
+// after the cached list still classifies correctly: unknown remote keys go through lookupRemoteComponent().
+var DS_CACHE_MS     = 10 * 60 * 1000;
+var DS_CACHE_PREFIX = "ds_cache_";
+var dsMemCache      = {};   // fileKey → { at, list: [{ key, name }] }
+
+function withSource(list, fileName) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) { out.push({ key: list[i].key, name: list[i].name, set: list[i].set || null, sourceName: fileName }); }
+  return out;
+}
+
+function fetchDSComponents(fileKey, fileName, token, notes) {
   if (!token) {
     return Promise.reject(new Error("Figma token not set. Please enter it in the session settings."));
   }
+  var mem = dsMemCache[fileKey];
+  if (mem && Date.now() - mem.at < DS_CACHE_MS) { return Promise.resolve(withSource(mem.list, fileName)); }
+
   return fetch(API_BASE + "/files/" + fileKey + "/components", {
     headers: { "X-Figma-Token": token },
   }).then(function(res) {
@@ -945,12 +1029,25 @@ function fetchDSComponents(fileKey, fileName, token) {
     if (!res.ok) { throw new Error("HTTP " + res.status + " for file " + fileKey); }
     return res.json();
   }).then(function(data) {
-    var list = (data.meta && data.meta.components) ? data.meta.components : [];
-    var out  = [];
-    for (var i = 0; i < list.length; i++) {
-      out.push({ key: list[i].key, name: list[i].name, sourceName: fileName });
+    var src  = (data.meta && data.meta.components) ? data.meta.components : [];
+    var list = [];
+    for (var i = 0; i < src.length; i++) {
+      var cf  = src[i].containing_frame;
+      var set = cf && cf.containingComponentSet ? cf.containingComponentSet.name : null;
+      list.push(set ? { key: src[i].key, name: src[i].name, set: set } : { key: src[i].key, name: src[i].name });
     }
-    return out;
+    var at = Date.now();
+    dsMemCache[fileKey] = { at: at, list: list };
+    figma.clientStorage.setAsync(DS_CACHE_PREFIX + fileKey, { at: at, list: list }).catch(function() {});
+    return withSource(list, fileName);
+  }).catch(function(err) {
+    if (err && err.status) { throw err; }    // auth / access: the caller explains it
+    // Network trouble: fall back to the last list we saw for this library.
+    return figma.clientStorage.getAsync(DS_CACHE_PREFIX + fileKey).then(function(saved) {
+      if (!saved || !saved.list) { throw err; }
+      if (notes) { notes.push({ code: "ds_cached", lib: fileName, at: new Date(saved.at).toISOString() }); }
+      return withSource(saved.list, fileName);
+    }, function() { throw err; });
   });
 }
 
@@ -973,6 +1070,7 @@ function detectOverrides(instance) {
       if (!changed || changed.length === 0) { continue; }
 
       var node     = index[ov.id] || null;
+      if (node && hiddenInInstance(node, instance)) { continue; }   // not rendered, so it can't deviate
       var nodeName = node ? node.name : ov.id;
       var has = function(f) { return changed.indexOf(f) > -1; };
       var nodeId   = node ? node.id : null;
@@ -980,45 +1078,214 @@ function detectOverrides(instance) {
         issues.push({ type: type, field: field, node: nodeName, nodeId: nodeId, value: value || "" });
       };
 
-      if (has("fontName"))       { add("typography", "Font Family",     node ? fmtFontName(safeGet(node, "fontName")) : ""); }
-      if (has("fontSize"))       { add("typography", "Font Size",       node ? fmtNumber(safeGet(node, "fontSize")) : ""); }
-      if (has("fontWeight"))     { add("typography", "Font Weight",     node ? fmtNumber(safeGet(node, "fontWeight")) : ""); }
-      if (has("letterSpacing"))  { add("typography", "Letter Spacing",  node ? fmtUnitValue(safeGet(node, "letterSpacing")) : ""); }
-      if (has("lineHeight"))     { add("typography", "Line Height",     node ? fmtUnitValue(safeGet(node, "lineHeight")) : ""); }
-      if (has("textCase"))       { add("typography", "Text Case",       node ? fmtPlain(safeGet(node, "textCase")) : ""); }
-      if (has("textDecoration")) { add("typography", "Text Decoration", node ? fmtPlain(safeGet(node, "textDecoration")) : ""); }
+      // Values that come from a variable or a style are tokens, not overrides.
+      var typoTokenised = node && hasStyle(node, "textStyleId");
+      var typo = function(fieldName, label, value, varField) {
+        if (!has(fieldName) || typoTokenised || (node && hasBoundVariable(node, varField || fieldName))) { return; }
+        add("typography", label, value());
+      };
+      typo("fontName",       "Font Family",     function() { return node ? fmtFontName(safeGet(node, "fontName")) : ""; }, "fontFamily");
+      typo("fontSize",       "Font Size",       function() { return node ? fmtNumber(safeGet(node, "fontSize")) : ""; });
+      typo("fontWeight",     "Font Weight",     function() { return node ? fmtNumber(safeGet(node, "fontWeight")) : ""; });
+      typo("letterSpacing",  "Letter Spacing",  function() { return node ? fmtUnitValue(safeGet(node, "letterSpacing")) : ""; });
+      typo("lineHeight",     "Line Height",     function() { return node ? fmtUnitValue(safeGet(node, "lineHeight")) : ""; });
+      typo("textCase",       "Text Case",       function() { return node ? fmtPlain(safeGet(node, "textCase")) : ""; });
+      typo("textDecoration", "Text Decoration", function() { return node ? fmtPlain(safeGet(node, "textDecoration")) : ""; });
 
-      if (has("fills") && node && hasHardcodedFill(node)) {
-        add("color", "Fill Color", fmtPaint(firstHardcodedPaint(safeGet(node, "fills"))));
-      }
-      if (has("strokes") && node && hasHardcodedStroke(node)) {
-        add("stroke", "Stroke Color", fmtPaint(firstHardcodedPaint(safeGet(node, "strokes"))));
-      }
-      if (has("strokeWeight")) { add("stroke", "Stroke Weight", node ? fmtNumber(safeGet(node, "strokeWeight"), "px") : ""); }
+      var fillDev = (has("fills") && node && !hasStyle(node, "fillStyleId")) ? paintDeviation(safeGet(node, "fills")) : null;
+      if (fillDev !== null) { add("color", "Fill Color", fillDev); }
+      var strokeDev = (has("strokes") && node && !hasStyle(node, "strokeStyleId")) ? paintDeviation(safeGet(node, "strokes")) : null;
+      if (strokeDev !== null) { add("stroke", "Stroke Color", strokeDev); }
+      if (has("strokeWeight") && !(node && hasBoundVariable(node, "strokeWeight")) && !allBound(node, STROKE_WEIGHT_VARS)) { add("stroke", "Stroke Weight", node ? fmtNumber(safeGet(node, "strokeWeight"), "px") : ""); }
       if (has("opacity") && node && !hasBoundVariable(node, "opacity")) {
         var op = safeGet(node, "opacity");
         add("color", "Opacity", typeof op === "number" ? Math.round(op * 100) + "%" : "");
       }
-      if (has("paddingLeft") || has("paddingRight") || has("paddingTop") || has("paddingBottom")) {
+      var pads = changedOf(changed, PADDING_FIELDS);
+      if (pads.length && !allBound(node, pads)) {
         add("spacing", "Padding", node ? fmtPadding(node) : "");
       }
-      if (has("itemSpacing")) { add("spacing", "Gap / Item Spacing", node ? fmtNumber(safeGet(node, "itemSpacing"), "px") : ""); }
+      if (has("itemSpacing") && !allBound(node, ["itemSpacing"])) { add("spacing", "Gap / Item Spacing", node ? fmtNumber(safeGet(node, "itemSpacing"), "px") : ""); }
       // Size: only a manual resize counts. Hug/Fill, auto-sizing text, stretch/scale constraints and the
       // instance itself (resizing a component is normal use) follow content or layout, not a hard-coded size.
-      if (node && ((has("width") && sizeIsFixed(node, instance, "h")) || (has("height") && sizeIsFixed(node, instance, "v")))) {
+      if (node && ((has("width") && sizeIsFixed(node, instance, "h") && !hasBoundVariable(node, "width")) ||
+                   (has("height") && sizeIsFixed(node, instance, "v") && !hasBoundVariable(node, "height")))) {
         add("size", "Dimensions", fmtNumber(safeGet(node, "width")) + "×" + fmtNumber(safeGet(node, "height")));
       }
-      if (has("cornerRadius") || has("topLeftRadius") || has("topRightRadius") || has("bottomLeftRadius") || has("bottomRightRadius")) {
+      var radii = changedOf(changed, RADIUS_FIELDS);
+      if (radii.length && !allBound(node, has("cornerRadius") ? RADIUS_FIELDS.slice(1) : radii)) {
         add("style", "Corner Radius", node ? fmtRadius(node) : "");
       }
-      if (has("effects")) {
+      if (has("effects") && !(node && (hasStyle(node, "effectStyleId") || hasBoundVariable(node, "effects")))) {
         var fx = node ? safeGet(node, "effects") : null;
-        add("style", "Effects / Shadow", Array.isArray(fx) ? fx.length + "" : "");
+        add("style", "Effects / Shadow", node ? fmtEffects(fx) : "");
+        issues[issues.length - 1].sv = Array.isArray(fx) ? fx.length + "" : "";   // value as signed before 2.11 (exceptions)
       }
     }
   } catch(e) {}
 
   return issues;
+}
+
+// The layer (or a parent inside this instance) is hidden.
+function hiddenInInstance(node, instance) {
+  var cur = node;
+  while (cur && cur !== instance && cur.id !== instance.id) {
+    if (safeGet(cur, "visible") === false) { return true; }
+    cur = cur.parent;
+  }
+  return false;
+}
+
+var PADDING_FIELDS     = ["paddingLeft", "paddingRight", "paddingTop", "paddingBottom"];
+var RADIUS_FIELDS      = ["cornerRadius", "topLeftRadius", "topRightRadius", "bottomLeftRadius", "bottomRightRadius"];
+var STROKE_WEIGHT_VARS = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
+
+function changedOf(changed, list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) { if (changed.indexOf(list[i]) > -1) { out.push(list[i]); } }
+  return out;
+}
+
+// Every listed field bound to a variable (number variables for spacing, radius, stroke weight).
+function allBound(node, list) {
+  if (!node || !list.length) { return false; }
+  for (var i = 0; i < list.length; i++) { if (!hasBoundVariable(node, list[i])) { return false; } }
+  return true;
+}
+
+// A (non-mixed) style is applied, e.g. a library color or text style.
+function hasStyle(node, key) {
+  var id = safeGet(node, key);
+  return typeof id === "string" && id !== "";
+}
+
+// ── Raw styles outside components (RAW, warnings) ─────────────
+// Layers that aren't inside an instance: a visible fill/stroke without a variable or style, and text without
+// a text style. Spacing, radius and effects aren't checked (not tokenised in every team). Images and
+// invisible paints are fine.
+// Warnings only: they show in the results but don't count as issues or block verification.
+var RAW_MAX = 300;   // per audit
+
+function rawPaint(paints) {
+  if (!Array.isArray(paints)) { return null; }
+  for (var i = 0; i < paints.length; i++) {
+    var p = paints[i];
+    if (!p || p.visible === false) { continue; }
+    if (p.type === "SOLID" && !(p.boundVariables && p.boundVariables.color)) { return fmtPaint(p); }
+    if (String(p.type).indexOf("GRADIENT") === 0) {
+      var stops = p.gradientStops || [];
+      for (var k = 0; k < stops.length; k++) {
+        if (!(stops[k].boundVariables && stops[k].boundVariables.color)) { return "Gradient"; }
+      }
+    }
+  }
+  return null;
+}
+
+function textStyled(node) {
+  var id = safeGet(node, "textStyleId");
+  if (typeof id === "string") { return id !== ""; }
+  if (id === figma.mixed) {
+    try {
+      var segs = node.getStyledTextSegments(["textStyleId"]);
+      for (var i = 0; i < segs.length; i++) { if (!segs[i].textStyleId) { return false; } }
+    } catch(e) {}
+  }
+  return true;
+}
+
+function rawProblems(node) {
+  var out = [];
+  var add = function(type, field, value) { out.push({ type: type, field: field, node: node.name, nodeId: node.id, value: value || "" }); };
+  if (!hasStyle(node, "fillStyleId")) {
+    var fp = rawPaint(safeGet(node, "fills"));
+    if (fp) { add("color", "Fill Color", fp); }
+  }
+  var sw = safeGet(node, "strokeWeight");
+  if (!hasStyle(node, "strokeStyleId") && (sw === figma.mixed || sw > 0)) {
+    var sp = rawPaint(safeGet(node, "strokes"));
+    if (sp) { add("stroke", "Stroke Color", sp); }
+  }
+  if (node.type === "TEXT" && !textStyled(node)) { add("typography", "Text Style", ""); }
+  return out;
+}
+
+function collectRaw(node, out) {
+  if (!node || node.visible === false || out.length >= RAW_MAX) { return; }
+  if (node.type === "INSTANCE") { return; }                    // components are checked by the audit itself
+  if (node.type !== "GROUP" && node.type !== "SECTION" && node.type !== "SLICE") {
+    var probs = rawProblems(node);
+    if (probs.length) {
+      out.push({ id: node.id, name: node.name, nodeType: node.type, problems: probs, path: getNodePath(node), parent: getDirectParent(node) });
+    }
+  }
+  if (node.type === "BOOLEAN_OPERATION") { return; }           // its parts are drawn with the operation's paint
+  if (node.children) {
+    for (var i = 0; i < node.children.length; i++) { collectRaw(node.children[i], out); }
+  }
+}
+
+// ── Nested swaps ──────────────────────────────────────────────
+// A nested instance inside a DS component that now points to a different component than in the
+// component's definition was swapped. It's an issue when the new component isn't from the DS:
+// local (LOC), another library (EXT) or no longer published (OLD). Internal "_" parts are fine.
+// The definition's layer is the last part of the nested ID ("I1:2;3:4" → "3:4").
+function definitionNodeId(id) {
+  var parts = String(id || "").split(";");
+  return parts.length > 1 ? parts[parts.length - 1] : null;
+}
+
+function mainKeyOf(node) { return getMain(node); }
+
+// Main component of an instance; null when it can't be resolved. During an audit the result is memoised,
+// so the fingerprint and snapshot use exactly what the audit saw (and don't ask Figma again).
+var mainMemo = null;   // instance id → main component (only while an audit runs)
+function getMain(node) {
+  if (mainMemo && mainMemo[node.id]) { return Promise.resolve(mainMemo[node.id]); }
+  var p;
+  try { p = node.getMainComponentAsync(); } catch(e) { return Promise.resolve(null); }
+  return Promise.resolve(p).then(function(m) {
+    if (m && mainMemo) { mainMemo[node.id] = m; }
+    return m || null;
+  }, function() { return null; });
+}
+
+function findBadSwaps(instance, dsKeys, dsFileNames) {
+  var ovs = [];
+  try { ovs = instance.overrides || []; } catch(e) { ovs = []; }
+  var targets = [], seen = {};
+  for (var i = 0; i < ovs.length; i++) {
+    if (seen[ovs[i].id] || ovs[i].id === instance.id) { continue; }
+    seen[ovs[i].id] = true;
+    if (definitionNodeId(ovs[i].id)) { targets.push(ovs[i].id); }
+  }
+  if (!targets.length) { return Promise.resolve([]); }
+  var index = {};
+  indexSubtree(instance, index);
+  return Promise.all(targets.map(function(id) {
+    var node = index[id];
+    if (!node || node.type !== "INSTANCE" || hiddenInInstance(node, instance)) { return null; }
+    return Promise.all([mainKeyOf(node), getNodeSafely(definitionNodeId(id)).then(function(n) {
+      return n && n.type === "INSTANCE" ? mainKeyOf(n) : null;
+    }, function() { return null; })]).then(function(r) {
+      var now = r[0], orig = r[1];
+      if (!now || !orig || now.key === orig.key) { return null; }      // not a swap (or can't tell)
+      if (dsKeys[now.key] || isUnpublishedComponent(now)) { return null; }
+      var swapIssue = function(code) {
+        return { type: "swap", field: "Swapped Component", node: node.name, nodeId: node.id, value: componentNames(now).name + " (" + code + ")" };
+      };
+      if (!now.remote) { return swapIssue("LOC"); }
+      return lookupRemoteComponent(now.key, dsFileNames).then(function(info) {
+        if (info.state === "found" && dsFileNames[info.fileKey] !== undefined) { return null; }
+        return swapIssue(info.state === "missing" ? "OLD" : "EXT");
+      }, function() { return swapIssue("EXT"); });
+    }, function() { return null; });
+  })).then(function(list) {
+    var out = [];
+    for (var j = 0; j < list.length; j++) { if (list[j]) { out.push(list[j]); } }
+    return out;
+  }, function() { return []; });
 }
 
 // Is this axis of a layer inside an instance a fixed, hand-set size?
@@ -1097,6 +1364,44 @@ function firstHardcodedPaint(paints) {
   return null;
 }
 
+// An overridden paint list that isn't tokenised: a raw solid color (its hex), a gradient whose stops
+// aren't all variables ("Gradient"), or every paint removed/hidden ("None"). Image/video fills are content.
+// null = fine.
+function paintDeviation(paints) {
+  if (!Array.isArray(paints)) { return null; }      // mixed / unreadable
+  var visible = [];
+  for (var i = 0; i < paints.length; i++) { if (paints[i] && paints[i].visible !== false) { visible.push(paints[i]); } }
+  if (!visible.length) { return "None"; }
+  var solid = firstHardcodedPaint(visible);
+  if (solid) { return fmtPaint(solid); }
+  for (var j = 0; j < visible.length; j++) {
+    var p = visible[j];
+    if (String(p.type).indexOf("GRADIENT") !== 0) { continue; }
+    var stops = p.gradientStops || [];
+    for (var k = 0; k < stops.length; k++) {
+      if (!(stops[k].boundVariables && stops[k].boundVariables.color)) { return "Gradient"; }
+    }
+  }
+  return null;
+}
+
+function fmtEffects(fx) {
+  if (fx === figma.mixed) { return "mixed"; }
+  if (!Array.isArray(fx)) { return ""; }
+  var vis = [];
+  for (var i = 0; i < fx.length; i++) { if (fx[i] && fx[i].visible !== false) { vis.push(fx[i]); } }
+  if (!vis.length) { return "None"; }
+  var e = vis[0], out;
+  if (e.type === "DROP_SHADOW" || e.type === "INNER_SHADOW") {
+    var o = e.offset || { x: 0, y: 0 };
+    var c = e.color ? toHex(e.color) + (e.color.a !== undefined && e.color.a < 1 ? " " + Math.round(e.color.a * 100) + "%" : "") : "";
+    out = (e.type === "DROP_SHADOW" ? "Drop shadow " : "Inner shadow ") + fmtNumber(o.x) + " " + fmtNumber(o.y) + " " + fmtNumber(e.radius) + (c ? " " + c : "");
+  } else {
+    out = (e.type === "BACKGROUND_BLUR" ? "Background blur " : "Blur ") + fmtNumber(e.radius);
+  }
+  return vis.length > 1 ? out + " +" + (vis.length - 1) : out;
+}
+
 function fmtPaint(p) {
   if (!p || !p.color) { return ""; }
   var o = (p.opacity === undefined) ? 1 : p.opacity;
@@ -1104,32 +1409,6 @@ function fmtPaint(p) {
 }
 
 // ── Color Helpers ─────────────────────────────────────────────
-
-function hasHardcodedFill(node) {
-  if (!("fills" in node)) { return false; }
-  var fills = node.fills;
-  if (!Array.isArray(fills) || fills.length === 0) { return false; }
-  for (var i = 0; i < fills.length; i++) {
-    if (fills[i].type !== "SOLID") { continue; }
-    var bound = fills[i].boundVariables;
-    if (bound && bound.color) { continue; }
-    return true;
-  }
-  return false;
-}
-
-function hasHardcodedStroke(node) {
-  if (!("strokes" in node)) { return false; }
-  var strokes = node.strokes;
-  if (!Array.isArray(strokes) || strokes.length === 0) { return false; }
-  for (var i = 0; i < strokes.length; i++) {
-    if (strokes[i].type !== "SOLID") { continue; }
-    var bound = strokes[i].boundVariables;
-    if (bound && bound.color) { continue; }
-    return true;
-  }
-  return false;
-}
 
 function hasBoundVariable(node, field) {
   try {
@@ -1222,7 +1501,7 @@ function fpOverrideValue(target, field) {
 // with its CURRENT VALUE (not just the field name). Layers that are not overridden
 // are left out, so accepting a library update does not invalidate a verification.
 function fpInstance(node) {
-  return node.getMainComponentAsync().then(function(m) { return m; }, function() { return null; }).then(function(main) {
+  return getMain(node).then(function(main) {
     var parts = ["key=" + (main ? main.key : "none")];
 
     try {
@@ -1264,10 +1543,7 @@ function fpInstance(node) {
     // Nested instance overrides (e.g. icon swaps): record which component it points to now.
     var lookups = [];
     for (var s = 0; s < swaps.length; s++) {
-      lookups.push(swaps[s].target.getMainComponentAsync().then(
-        function(mc) { return mc ? mc.key : "none"; },
-        function() { return "none"; }
-      ));
+      lookups.push(getMain(swaps[s].target).then(function(mc) { return mc ? mc.key : "none"; }));
     }
     return Promise.all(lookups).then(function(keys) {
       for (var q = 0; q < swaps.length; q++) { swaps[q].entry.text += ",main=" + keys[q]; }
@@ -1491,7 +1767,7 @@ function snapshotFrame(frame) {
   if (cut) { list = list.slice(0, SNAP_MAX_INST); }
   var inst = {};
   return Promise.all(list.map(function(n) {
-    return n.getMainComponentAsync().then(function(main) {
+    return getMain(n).then(function(main) {
       var names = componentNames(main);
       var ovs = {};
       var o = detectOverrides(n);
@@ -1644,7 +1920,7 @@ var trackTimer   = null;
 function topFrameOf(node) {
   var cur = node, top = null;
   while (cur && cur.type !== "PAGE" && cur.type !== "DOCUMENT") {
-    if (cur.parent && (cur.parent.type === "PAGE" || cur.parent.type === "SECTION") && isFrameLike(cur)) { top = cur; }
+    if (cur.parent && (cur.parent.type === "PAGE" || cur.parent.type === "SECTION") && isAuditTarget(cur)) { top = cur; }
     cur = cur.parent;
   }
   return top;
@@ -1704,20 +1980,14 @@ function verifyTargetsFromSelection() {
   if (!sel || !sel.length) { return []; }
   var node = sel[0];
 
-  if (node.type === "SECTION") {
-    var kids = [];
-    for (var i = 0; i < node.children.length; i++) {
-      if (isFrameLike(node.children[i])) { kids.push(node.children[i]); }
-    }
-    return kids;
-  }
+  if (node.type === "SECTION") { return expandTargets([node]); }
 
   // Nearest ancestor (or self) carrying a record wins; otherwise the top-level frame.
   var cur = node, top = null;
   while (cur && cur.type !== "PAGE") {
     if (readVerification(cur)) { return [cur]; }
     if (cur.parent && (cur.parent.type === "PAGE" || cur.parent.type === "SECTION")) {
-      top = isFrameLike(cur) ? cur : null;
+      top = isAuditTarget(cur) ? cur : null;
       break;
     }
     cur = cur.parent;
@@ -1856,7 +2126,8 @@ function overridesSignature(overrides, legacy) {
   for (var i = 0; i < (overrides || []).length; i++) {
     var o = overrides[i];
     if (!legacy && SIG_SKIP_FIELDS[o.field]) { continue; }
-    parts.push(o.node + "|" + o.field + "|" + o.value);
+    if (o.type === "swap") { continue; }   // nested swaps are checked separately (rec.swaps)
+    parts.push(o.node + "|" + o.field + "|" + (o.sv !== undefined ? o.sv : o.value));
   }
   parts.sort();
   return parts.join(";");
@@ -1875,7 +2146,7 @@ function issueSignature(instance, reason, overrides, legacy) {
 function sigReason(reason) { return (reason === "external_library" || reason === "outdated") ? "remote" : reason; }
 
 function issueSignatureV3(instance, reason, overrides) {
-  return instance.getMainComponentAsync().then(function(m) { return m; }, function() { return null; }).then(function(main) {
+  return getMain(instance).then(function(main) {
     return fpHash("v3\n" + sigReason(reason) + "\n" + (main ? main.key : "none") + "\n" + overridesSignature(overrides, false));
   });
 }
@@ -1898,6 +2169,17 @@ function resolutionMatches(instance, rec, overrides) {
   });
 }
 
+// Nested swaps to non-DS components need the DS list, so they come from the last audit, not detectOverrides().
+var lastAuditOverrides = {};   // instance id → overrides of its issue in the last audit
+
+function swapList(overrides) {
+  var out = [];
+  for (var i = 0; i < (overrides || []).length; i++) {
+    if (overrides[i].type === "swap") { out.push(overrides[i].node + "|" + overrides[i].value); }
+  }
+  return out.sort();
+}
+
 function checkResolution(instance, issue) {
   var rec = readResolution(instance);
   if (!rec) { return Promise.resolve({ state: "none" }); }
@@ -1907,6 +2189,8 @@ function checkResolution(instance, issue) {
     return Promise.resolve({ state: "stale", record: rec });
   }
   return resolutionMatches(instance, rec, issue.overrides).then(function(ok) {
+    // Non-DS nested swaps must be the same ones that were accepted.
+    if (ok && swapList(issue.overrides).join(";") !== (rec.swaps || []).join(";")) { ok = false; }
     return { state: ok ? "resolved" : "stale", record: rec };
   }, function() {
     return { state: "none" };
@@ -1934,6 +2218,7 @@ function handleResolveIssue(msg) {
         v      : RESOLVE_SIG_VERSION,
         reason : msg.reason,
         sig    : sig,
+        swaps  : swapList(lastAuditOverrides[node.id] || []),
         note   : String(msg.note || "").slice(0, 500),
         by     : { id: u ? u.id : null, name: u ? u.name : null },
         at     : new Date().toISOString(),
@@ -2007,7 +2292,7 @@ function handleExportResolutions() {
     var chain = Promise.resolve();
     found.forEach(function(f) {
       chain = chain.then(function() {
-        return f.node.getMainComponentAsync().then(function(m) { return m; }, function() { return null; }).then(function(main) {
+        return getMain(f.node).then(function(main) {
           var names = componentNames(main);
           return resolutionMatches(f.node, f.rec, detectOverrides(f.node)).then(function(ok) { return ok; }, function() { return false; })
             .then(function(active) {
@@ -2054,6 +2339,25 @@ function componentNames(mainComp) {
 // version the instance still points to). Cached per key and per file for the session.
 function lookupRemoteComponent() { return Promise.resolve({ state: "unknown" }); }
 
+function buildDetachedItem(frame, dsNames, dsSets) {
+  var info = safeGet(frame, "detachedInfo") || {};
+  var key  = info.componentKey;
+  var compName = key && dsNames[key] ? dsNames[key] : null;
+  var setName  = key && dsSets[key] ? dsSets[key] : null;
+  return {
+    id                : frame.id,
+    name              : frame.name,
+    reason            : "detached",
+    overrides         : [],
+    mainComponentName : compName,
+    componentName     : setName || compName,
+    variantName       : setName ? compName : null,
+    inDS              : !!compName,
+    path              : getNodePath(frame),
+    parent            : getDirectParent(frame),
+  };
+}
+
 function buildInvalidItem(instance, reason, mainComp, overrides) {
   var names = componentNames(mainComp);
   return {
@@ -2071,12 +2375,18 @@ function buildInvalidItem(instance, reason, mainComp, overrides) {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function collectInstances(node, result) {
+// Visible instances (not their insides). With `detached`, also collects frames that were detached
+// from a library component (Figma's detachedInfo) — their contents are still scanned.
+function collectInstances(node, result, detached) {
   if (node.visible === false) { return; }
   if (node.type === "INSTANCE") { result.push(node); return; }
+  if (detached && node.type === "FRAME") {
+    var info = safeGet(node, "detachedInfo");
+    if (info && info.type === "library") { detached.push(node); }
+  }
   if (node.children) {
     for (var i = 0; i < node.children.length; i++) {
-      collectInstances(node.children[i], result);
+      collectInstances(node.children[i], result, detached);
     }
   }
 }
@@ -2097,6 +2407,10 @@ function getDirectParent(node) {
   return { id: p.id, name: p.name, type: p.type };
 }
 
+function currentFileKey() {
+  try { return figma.fileKey || null; } catch(e) { return null; }
+}
+
 // ── Messaging ─────────────────────────────────────────────────
 
 function send(type, payload) {
@@ -2105,5 +2419,10 @@ function send(type, payload) {
   figma.ui.postMessage(msg);
 }
 
-function sendStatus(text) { send("STATUS", { text: text }); }
+// code + params let the UI show the message in its language; text is the English fallback.
+function sendStatus(text, code, params) {
+  var m = { text: text };
+  if (code) { m.code = code; for (var k in (params || {})) { m[k] = params[k]; } }
+  send("STATUS", m);
+}
 function sendError(text)  { send("ERROR",  { text: text }); }
