@@ -2,7 +2,7 @@
 
 var VERSION = {
   major : 2,
-  minor : 11,
+  minor : 12,
   patch : 0,
   label : "",
 };
@@ -141,11 +141,11 @@ function topLeftPosition() {
 }
 
 (function() {
-  var opts = { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE" };
+  var opts = { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE", themeColors: true };   // themeColors: html gets figma-dark / figma-light
   var pos = topLeftPosition();
   if (pos) { opts.position = pos; }
   try { figma.showUI(__html__, opts); }
-  catch (e) { figma.showUI(__html__, { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE" }); }
+  catch (e) { figma.showUI(__html__, { width: UI_DEFAULT_W, height: UI_DEFAULT_H, title: "DAROOGHE", themeColors: true }); }
 })();
 
 // ── Selection Change ──────────────────────────────────────────
@@ -175,6 +175,7 @@ figma.ui.onmessage = function(msg) {
   if (msg.type === "CHECK_VERIFICATION") { scheduleVerifyCheck(0);  }
   if (msg.type === "MARK_READY_FOR_DEV") { handleMarkReadyForDev(msg); }
   if (msg.type === "RESOLVE_ISSUE")    { handleResolveIssue(msg);   }
+  if (msg.type === "RESOLVE_ISSUES")   { handleResolveIssues(msg);  }
   if (msg.type === "EXPORT_RESOLUTIONS") { handleExportResolutions(); }
   if (msg.type === "UNRESOLVE_ISSUE")  { handleUnresolveIssue(msg); }
   if (msg.type === "RESIZE_FRAME")     { handleResizeFrame(msg);    }
@@ -579,7 +580,9 @@ function handleRunAudit(msg) {
       for (var ff = 0; ff < finalFrames.length; ff++) {
         var frameList = [], frameDetached = [];
         collectInstances(finalFrames[ff], frameList, frameDetached);
+        var rawFrom = rawWarnings.length;
         collectRaw(finalFrames[ff], rawWarnings);
+        for (var rw = rawFrom; rw < rawWarnings.length; rw++) { rawWarnings[rw].frameId = finalFrames[ff].id; rawWarnings[rw].frameName = finalFrames[ff].name; }
         frameInstanceCounts.push(frameList.length + frameDetached.length);
         for (var fl = 0; fl < frameList.length; fl++) {
           instanceFrameIndex[frameList[fl].id] = ff;
@@ -602,10 +605,11 @@ function handleRunAudit(msg) {
       var order    = {};
       for (var oi = 0; oi < allInstances.length; oi++) { order[allInstances[oi].id] = oi; }
       for (var od = 0; od < allDetached.length; od++) { order[allDetached[od].id] = allInstances.length + od; }
-      // Detached from a library component: always an issue (DET), named after the component when it's in the DS list.
-      for (var di = 0; di < allDetached.length; di++) {
-        invalid.push(buildDetachedItem(allDetached[di], dsNames, dsSets));
-      }
+      // Detached from a library component: an issue (DET), named after the component when it's in the DS list.
+      // A reviewer may have accepted it as an exception (checked with the other issues below).
+      var detachedChecks = allDetached.map(function(fr) {
+        return function() { return finishIssue(fr, buildDetachedItem(fr, dsNames, dsSets), null); };
+      });
 
       // All lookups in parallel (cached per key), then classify each instance like the main pass.
       function resolveDeferred() {
@@ -672,7 +676,7 @@ function handleRunAudit(msg) {
           // A DS reviewer may have approved this exact deviation (see Resolutions).
           return finishIssue(instance, issue, null);
         }).catch(function() {
-          invalid.push(buildInvalidItem(instance, "missing_main", null, []));
+          return finishIssue(instance, buildInvalidItem(instance, "missing_main", null, []), null);
         });
       }
 
@@ -689,6 +693,11 @@ function handleRunAudit(msg) {
       function finish() {
         valid.sort(byLayerOrder);
         invalid.sort(byLayerOrder);
+        // Which audited frame each result belongs to (the UI can group by frame when several were audited).
+        var tagFrame = function(it) { var fi = instanceFrameIndex[it.id]; if (fi !== undefined) { it.frameId = finalFrames[fi].id; it.frameName = finalFrames[fi].name; } };
+        valid.forEach(tagFrame); invalid.forEach(tagFrame);
+        auditedFrames = {};
+        for (var af = 0; af < finalFrames.length; af++) { auditedFrames[finalFrames[af].id] = true; }
         lastAuditOverrides = {};
         for (var lo = 0; lo < invalid.length; lo++) { lastAuditOverrides[invalid[lo].id] = invalid[lo].overrides || []; }
         var auditName = finalFrames.length === 1
@@ -742,9 +751,10 @@ function handleRunAudit(msg) {
       function retryPendingMain(round) {
         if (!pendingMain.length) { return Promise.resolve(); }
         if (round >= MAIN_RETRY_MS.length) {
-          for (var pm = 0; pm < pendingMain.length; pm++) { invalid.push(buildInvalidItem(pendingMain[pm], "missing_main", null, [])); }
+          // Still no main component: MIS — checked against accepted exceptions like every other issue.
+          var missing = pendingMain;
           pendingMain = [];
-          return Promise.resolve();
+          return Promise.all(missing.map(function(inst) { return finishIssue(inst, buildInvalidItem(inst, "missing_main", null, []), null); }));
         }
         var batch = pendingMain;
         pendingMain = [];
@@ -755,6 +765,7 @@ function handleRunAudit(msg) {
 
       mainMemo = {};
       runPool(allInstances, AUDIT_CONCURRENCY, classify, progress)
+        .then(function() { return runPool(detachedChecks, AUDIT_CONCURRENCY, function(f) { return f(); }); })
         .then(function() { return retryPendingMain(0); })
         .then(function() { return deferred.length ? resolveDeferred() : null; })
         .then(finish, finish);
@@ -1880,9 +1891,28 @@ function lastEntryTime(log) {
   return log.length ? log[log.length - 1].at : null;
 }
 
+// Other people in the file right now (needs the "activeusers" permission); [] when unknown.
+function otherActiveUsers() {
+  var out = [];
+  try {
+    var meId = figma.currentUser ? figma.currentUser.id : null;
+    var list = figma.activeUsers || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id !== meId && list[i].name && out.indexOf(list[i].name) < 0) { out.push(list[i].name); }
+    }
+  } catch(e) {}
+  return out;
+}
+
 function recordDetectedChange(frame, log, fp, now, d) {
   var from = lastEntryTime(log);
-  var entry = appendChange(frame, { k: "c", at: now || new Date().toISOString(), by: null, uid: null, src: "d", from: from, fp: fp, d: d || null });
+  // A remote change: if exactly one other person was in the file it was them; with several, keep the candidates.
+  var rw = remoteWho[frame.id], by = null, cand = null;
+  if (rw && Date.now() - rw.at < 10 * 60 * 1000 && rw.names.length) {
+    if (rw.names.length === 1) { by = rw.names[0]; } else { cand = rw.names.slice(0, 6); }
+    delete remoteWho[frame.id];
+  }
+  var entry = appendChange(frame, { k: "c", at: now || new Date().toISOString(), by: by, uid: null, src: by ? "r" : "d", cand: cand, from: from, fp: fp, d: d || null });
   return fileEditorsBetween(from, entry.at).then(function(names) {
     if (!names || !names.length) { return; }
     var l = readLog(frame);
@@ -1901,7 +1931,10 @@ function recordDetectedChange(frame, log, fp, now, d) {
 // Change noticed while checking the selection (someone edited without Darooghe open).
 function detectChange(frame, log, fp) {
   if (isDevMode() || lastFp(log) === fp) { return; }
-  if (localDirty[frame.id]) { return; }                                  // our own edit: trackLocalChanges logs it by name
+  // Our own edit: trackLocalChanges logs it by name. It's still ours while that is running (localPending)
+  // and for a short while after the last local change (the verify check runs before the local tracker).
+  if (localDirty[frame.id] || localPending[frame.id]) { return; }
+  if (lastLocalAt[frame.id] && Date.now() - lastLocalAt[frame.id] < LOCAL_GRACE_MS) { scheduleVerifyCheck(LOCAL_GRACE_MS); return; }
   var r = remoteDirty[frame.id];
   if (r && Date.now() - r < REMOTE_QUIET_MS) { scheduleVerifyCheck(REMOTE_QUIET_MS); return; }
   if (detecting[frame.id]) { return; }
@@ -1912,6 +1945,10 @@ function detectChange(frame, log, fp) {
 }
 
 // Edits made here while the plugin is open: logged with the current user's name.
+var LOCAL_GRACE_MS = 15000;
+var localPending = {};    // frame id → the local tracker is logging it right now
+var lastLocalAt  = {};    // frame id → time of our last edit to it
+var remoteWho    = {};    // frame id → { at, names } — who else was in the file when a remote change arrived
 var localDirty   = {};
 var detecting    = {};
 var remoteDirty  = {};
@@ -1932,9 +1969,13 @@ function onlyMeta(props) {
   return true;
 }
 
+// Frames shown in the last audit result: the first real edit to one of them makes that result stale.
+var auditedFrames = {};
+
 function onNodeChanges(event) {
   if (isDevMode() || !event || !event.nodeChanges) { return; }
   var changes = event.nodeChanges;
+  var stale = [];
   for (var i = 0; i < changes.length && i < 200; i++) {
     var c = changes[i];
     if (c.type === "PROPERTY_CHANGE" && c.properties && onlyMeta(c.properties)) { continue; }
@@ -1943,9 +1984,11 @@ function onNodeChanges(event) {
     var top = null;
     try { top = topFrameOf(n); } catch(e) { top = null; }
     if (!top) { continue; }
-    if (c.origin === "REMOTE") { remoteDirty[top.id] = Date.now(); }
-    else { localDirty[top.id] = true; }
+    if (auditedFrames[top.id]) { delete auditedFrames[top.id]; stale.push(top.id); }
+    if (c.origin === "REMOTE") { remoteDirty[top.id] = Date.now(); remoteWho[top.id] = { at: Date.now(), names: otherActiveUsers() }; }
+    else { localDirty[top.id] = true; lastLocalAt[top.id] = Date.now(); }
   }
+  if (stale.length) { send("RESULT_STALE", { frameIds: stale }); }
   if (trackTimer) { clearTimeout(trackTimer); }
   trackTimer = setTimeout(trackLocalChanges, 1500);
 }
@@ -1955,6 +1998,7 @@ function trackLocalChanges() {
   var ids = Object.keys(localDirty);
   localDirty = {};
   ids.forEach(function(id) {
+    localPending[id] = true;
     getNodeSafely(id).then(function(frame) {
       if (!frame || frame.removed) { return; }
       var log = readLog(frame);
@@ -1967,7 +2011,7 @@ function trackLocalChanges() {
           scheduleVerifyCheck(0);
         });
       });
-    }).catch(function() {});
+    }).then(function() { delete localPending[id]; }, function() { delete localPending[id]; });
   });
 }
 
@@ -2049,7 +2093,7 @@ function handleMarkReadyForDev(msg) {
 // instance changes afterwards the approval expires and the issue comes back.
 
 var RESOLVE_KEY = "resolution";
-var RESOLVABLE  = { ds_overridden: true, unpublished: true, external_library: true, local_component: true, outdated: true };
+var RESOLVABLE  = { ds_overridden: true, unpublished: true, external_library: true, local_component: true, outdated: true, detached: true, missing_main: true };   // every issue type
 var cachedReviewers = [];
 
 // guidelines.reviewers → can resolve issues.  guidelines.admins → manage the shared token
@@ -2146,6 +2190,11 @@ function issueSignature(instance, reason, overrides, legacy) {
 function sigReason(reason) { return (reason === "external_library" || reason === "outdated") ? "remote" : reason; }
 
 function issueSignatureV3(instance, reason, overrides) {
+  if (instance.type !== "INSTANCE") {
+    // Detached frame: the component it was detached from identifies the accepted issue.
+    var info = safeGet(instance, "detachedInfo") || {};
+    return Promise.resolve(fpHash("v3\n" + sigReason(reason) + "\ndet:" + (info.componentKey || info.componentId || "none") + "\n"));
+  }
   return getMain(instance).then(function(main) {
     return fpHash("v3\n" + sigReason(reason) + "\n" + (main ? main.key : "none") + "\n" + overridesSignature(overrides, false));
   });
@@ -2204,14 +2253,16 @@ function buildResolvedItem(instance, issue, rec, sourceName) {
   return item;
 }
 
-function handleResolveIssue(msg) {
-  if (isDevMode())  { send("RESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: "Resolving isn't available in Dev Mode." }); return; }
-  if (!isReviewer()) { send("RESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: "Only design system reviewers can resolve issues." }); return; }
-  if (!RESOLVABLE[msg.reason]) { send("RESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: "This issue type can't be resolved." }); return; }
+// Records one exception. Resolves with the RESOLVE_RESULT payload (never rejects).
+function resolveOne(msg) {
+  if (isDevMode())  { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "Resolving isn't available in Dev Mode." }); }
+  if (!isReviewer()) { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "Only design system reviewers can resolve issues." }); }
+  if (!RESOLVABLE[msg.reason]) { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "This issue type can't be resolved." }); }
 
-  getNodeSafely(msg.nodeId).then(function(node) {
-    if (!node || node.type !== "INSTANCE") { throw new Error("Instance not found."); }
-    var overrides = detectOverrides(node);
+  return getNodeSafely(msg.nodeId).then(function(node) {
+    var isDetached = !!node && node.type === "FRAME" && !!safeGet(node, "detachedInfo");
+    if (!node || (node.type !== "INSTANCE" && !isDetached)) { throw new Error("Instance not found."); }
+    var overrides = isDetached ? [] : detectOverrides(node);
     return issueSignatureV3(node, msg.reason, overrides).then(function(sig) {
       var u = figma.currentUser;
       var rec = {
@@ -2224,11 +2275,33 @@ function handleResolveIssue(msg) {
         at     : new Date().toISOString(),
       };
       node.setSharedPluginData(VERIFY_NS, RESOLVE_KEY, JSON.stringify(rec));
-      send("RESOLVE_RESULT", { success: true, nodeId: node.id, resolution: publicResolution(rec) });
+      return { success: true, nodeId: node.id, resolution: publicResolution(rec) };
     });
   }).catch(function(err) {
-    send("RESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: err.message });
+    return { success: false, nodeId: msg.nodeId, error: err.message };
   });
+}
+
+function handleResolveIssue(msg) {
+  resolveOne(msg).then(function(res) { send("RESOLVE_RESULT", res); });
+}
+
+// Bulk: { items: [{ nodeId, reason }], note } — one after another, a RESOLVE_RESULT (bulk: true) per item,
+// then RESOLVE_BULK_DONE with the counts.
+function handleResolveIssues(msg) {
+  var items = (msg.items || []).slice(0, 500);
+  var ok = 0, failed = 0;
+  var chain = Promise.resolve();
+  items.forEach(function(it) {
+    chain = chain.then(function() {
+      return resolveOne({ nodeId: it.nodeId, reason: it.reason, note: msg.note }).then(function(res) {
+        if (res.success) { ok++; } else { failed++; }
+        res.bulk = true;
+        send("RESOLVE_RESULT", res);
+      });
+    });
+  });
+  chain.then(function() { send("RESOLVE_BULK_DONE", { ok: ok, failed: failed }); });
 }
 
 function handleUnresolveIssue(msg) {
@@ -2282,7 +2355,7 @@ function handleExportResolutions() {
     var pages = figma.root.children;
     for (var p = 0; p < pages.length; p++) {
       var list = [];
-      try { list = pages[p].findAllWithCriteria({ types: ["INSTANCE"] }); } catch(e) { list = []; }
+      try { list = pages[p].findAllWithCriteria({ types: ["INSTANCE", "FRAME"] }); } catch(e) { list = []; }
       for (var i = 0; i < list.length; i++) {
         var rec = readResolution(list[i]);
         if (rec) { found.push({ node: list[i], rec: rec, page: pages[p].name }); }
