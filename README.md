@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.12.0** · [Figma Community](#) · Free
+**Version 2.13.0** · [Figma Community](#) · Free
 
 ---
 
@@ -18,7 +18,7 @@ Darooghe checks every component in a Figma frame against **your** design system.
 Darooghe needs no token and no account. It learns your design system directly from the library file:
 
 1. Open your design system **library file** in Figma.
-2. Run Darooghe and open **Settings → Register this file as a library**.
+2. Run Darooghe and open **Settings → Register this file as a library**. Only published components are registered, so publish the library first.
 3. Repeat for each library you use, for example icons or illustrations.
 
 Re-register a library after you publish changes to it. Registered libraries are stored on your device and work in every file.
@@ -28,7 +28,8 @@ Re-register a library after you publish changes to it. Registered libraries are 
 1. **Select a frame** on the canvas (Shift-select to audit several), or pick one from the list.
 2. Press **Run audit**.
 3. The summary shows the compliance %, then a split bar: on system · accepted exceptions · modified · off system.
-4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. Click the arrow to jump to the layer.
+4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. The same issue repeated across instances is one row with a count («×30 · on 30 screens»), with Accept all, Select on canvas and Show. Click the arrow to jump to the layer.
+5. **A section or several frames** get one verdict and a short list of screens (failed first; frames without components fold into one line). Click a screen to see only its issues.
 5. Fix the issues and re-audit until the frame passes.
 
 ### What it finds
@@ -40,13 +41,13 @@ Re-register a library after you publish changes to it. Registered libraries are 
 | `EXT` | A component from a library you haven't registered |
 | `UNP` | An internal part (`_Name`) used directly |
 | `MIS` | An instance whose main component is gone |
-| `DET` | A layer detached from a library component |
+| `DET` | A layer detached from a design system component (detached from anything else, it's just a frame) |
 
 Values from variables or styles are fine, and so are overrides on hidden layers. Text content and layout-driven size changes are ignored. Sections are audited with everything inside them.
 
 **Export CSV** saves the whole audit (issues, accepted exceptions and passed instances, with Figma links).
 
-**Warnings (`RAW`)** — layers outside components with a raw colour or text without a text style appear in a Warnings tab. They don't block verification.
+**Warnings (`RAW`)** — layers outside components with a raw colour or text without a text style appear in a Warnings tab. They don't block verification. Hand-drawn vectors inside a group (badges, illustrations) aren't checked, and in a section, frames without components (labels, notes) are skipped.
 
 ### Handoff
 - **Verified stamp**: a frame with zero issues gets stamped. If it changes later, the stamp turns into *Changed since verification*. Copy edits and resizing don't count.

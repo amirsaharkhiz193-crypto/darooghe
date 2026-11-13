@@ -2,7 +2,7 @@
 
 var VERSION = {
   major : 2,
-  minor : 12,
+  minor : 13,
   patch : 0,
   label : "",
 };
@@ -17,6 +17,7 @@ if (VERSION.label) { VERSION.string = VERSION.string + "-" + VERSION.label; }
 var EDITION         = "public";
 var DEFAULT_DS_KEY  = null;
 var DEFAULT_DS_NAME = null;
+var CONFIG_SRC      = null;
 var GUIDELINES_URL  = null;
 var LLM_URL         = "";
 var API_BASE    = "https://api.figma.com/v1";
@@ -177,7 +178,8 @@ figma.ui.onmessage = function(msg) {
   if (msg.type === "RESOLVE_ISSUE")    { handleResolveIssue(msg);   }
   if (msg.type === "RESOLVE_ISSUES")   { handleResolveIssues(msg);  }
   if (msg.type === "EXPORT_RESOLUTIONS") { handleExportResolutions(); }
-  if (msg.type === "UNRESOLVE_ISSUE")  { handleUnresolveIssue(msg); }
+  if (msg.type === "CANCEL_AUDIT")       { handleCancelAudit(); }
+    if (msg.type === "UNRESOLVE_ISSUE")  { handleUnresolveIssue(msg); }
   if (msg.type === "RESIZE_FRAME")     { handleResizeFrame(msg);    }
   if (msg.type === "CLOSE")            { figma.closePlugin();        }
 };
@@ -198,7 +200,8 @@ function handleInit() {
     var guidelines = results[0];
     send("GUIDELINES_LOADED", { guidelines: guidelines });
     setReviewers(guidelines);
-    setSharedToken(guidelines);
+    setTeamRules(guidelines);
+        setSharedToken(guidelines);
     sendTokenStatus();
     if (EDITION === "public") {
       loadRegisteredLibraries().then(function(list) { send("LIBRARIES_LOADED", { libraries: libSummary(list) }); });
@@ -208,6 +211,7 @@ function handleInit() {
   }).catch(function() {
     send("GUIDELINES_LOADED", { guidelines: null });
     setReviewers(null);
+    setTeamRules(null);
     setSharedToken(null);
     sendTokenStatus();
     if (EDITION === "public") {
@@ -256,26 +260,44 @@ function syncSelection() {
     targets  : targets,
   });
 }
+// GitLab file API path for the config (project and file URL-encoded).
+function cfgPath(suffix) {
+  return CONFIG_SRC.host + "/api/v4/projects/" + encodeURIComponent(CONFIG_SRC.project) + "/repository/files/" + encodeURIComponent(CONFIG_SRC.file) + (suffix || "");
+}
+function cfgReadToken() { return CONFIG_SRC && CONFIG_SRC.readTokenB64 ? b64decode(CONFIG_SRC.readTokenB64).replace(/^\s+|\s+$/g, "") : ""; }
+function fetchJson(url, headers) {
+  return fetch(url, { headers: headers || {} }).then(function(res) {
+    if (!res.ok) { throw new Error("HTTP " + res.status); }
+    return res.json();
+  });
+}
+
 function fetchGuidelines() {
-  if (!GUIDELINES_URL) { return Promise.resolve(null); }   // public edition: no team config
+  if (!CONFIG_SRC && !GUIDELINES_URL) { return Promise.resolve(null); }   // public edition: no team config
+  var fromGitlab = function() {
+    var tok = cfgReadToken();
+    if (!tok) { return Promise.reject(new Error("no read token")); }
+    return fetchJson(cfgPath("/raw?ref=" + encodeURIComponent(CONFIG_SRC.ref) + "&t=" + Date.now()), { "PRIVATE-TOKEN": tok });
+  };
   // Cache-buster: GitHub's raw CDN (and Figma) can serve an old copy for minutes after a gist edit.
-  return fetch(GUIDELINES_URL + "?t=" + Date.now())
-    .then(function(res) {
-      if (!res.ok) { throw new Error("HTTP " + res.status); }
-      return res.json();
-    })
+  var fromGist = function() { return GUIDELINES_URL ? fetchJson(GUIDELINES_URL + "?t=" + Date.now()) : Promise.reject(new Error("no gist")); };
+  var src = "gitlab";
+  return fromGitlab()
+    .catch(function() { src = "gist"; return fromGist(); })
     .then(function(data) {
-      // cache توی clientStorage
+      configSource = src;
       figma.clientStorage.setAsync("cached_guidelines", data).catch(function() {});
       return data;
     })
     .catch(function() {
-      // اگه fetch خطا داد، از cache بخون
+      // Offline (e.g. outside the company network): the last copy that was read on this computer.
+      configSource = "cache";
       return figma.clientStorage.getAsync("cached_guidelines").then(function(cached) {
         return cached || null;
       });
     });
 }
+var configSource = null;   // "gitlab" | "gist" | "cache" — where the current config came from
 
 function handleGetFrames() {
   var frames   = [];
@@ -339,8 +361,16 @@ function handleRegisterLibrary() {
   loadAll.then(function() {
     var comps = [];
     try { comps = figma.root.findAllWithCriteria({ types: ["COMPONENT"] }); } catch(e) { comps = []; }
+    // Only what designers can actually use: published components. Changes not published yet don't count
+    // ("CHANGED" = published, with edits waiting — the key and the published version are what instances use).
+    return Promise.all(comps.map(function(c) {
+      var p;
+      try { p = c.getPublishStatusAsync ? c.getPublishStatusAsync() : "CURRENT"; } catch(e) { p = "CURRENT"; }
+      return Promise.resolve(p).then(function(st) { return st; }, function() { return "CURRENT"; });
+    })).then(function(states) {
     var map = {}, count = 0;
     for (var i = 0; i < comps.length; i++) {
+      if (states[i] === "UNPUBLISHED") { continue; }
       var key = null;
       try { key = comps[i].key; } catch(e) {}
       if (!key) { continue; }
@@ -358,6 +388,7 @@ function handleRegisterLibrary() {
       return figma.clientStorage.setAsync(REG_KEY, list).then(function() {
         send("LIBRARY_REGISTERED", { success: true, name: name, count: count, updated: replaced, libraries: libSummary(list) });
       });
+    });
     });
   }).catch(function(err) {
     send("LIBRARY_REGISTERED", { success: false, error: err.message });
@@ -499,7 +530,18 @@ function runPool(items, limit, worker, onProgress) {
   });
 }
 
+// Cancelling: every audit gets a run number; CANCEL_AUDIT (or a newer audit) moves it on, and each stage of an
+// older run stops where it is — no result, no verification or history written.
+var auditRun = 0;
+function handleCancelAudit() {
+  auditRun++;
+  mainMemo = null;
+  send("AUDIT_CANCELLED", {});
+}
+
 function handleRunAudit(msg) {
+  var myRun = ++auditRun;
+  var cancelled = function() { return myRun !== auditRun; };
   sendStatus("Fetching Design System components...", "st_fetch");
 
   var figmaToken = null;
@@ -539,6 +581,7 @@ function handleRunAudit(msg) {
   for (var dl = 0; dl < activeLibs.length; dl++) { dsFileNames[activeLibs[dl].key] = activeLibs[dl].name; }
 
   libsPromise.then(function(results) {
+    if (cancelled()) { return; }
     var dsKeys        = {};
     var dsNames       = {};
     var dsSourceNames = {};
@@ -577,11 +620,16 @@ function handleRunAudit(msg) {
       var rawWarnings  = [];   // layers outside components with raw (untokenised) styles — warnings, not issues
       var frameInstanceCounts = [];
       var instanceFrameIndex = {};
+      var skippedEmpty = 0;    // several targets: frames without components are labels / notes, not screens
       for (var ff = 0; ff < finalFrames.length; ff++) {
         var frameList = [], frameDetached = [];
         collectInstances(finalFrames[ff], frameList, frameDetached);
+        // A detached frame is an issue only when it was a design-system component (it no longer gets DS updates).
+        // Detached from anything else it is just a frame — its contents are still checked like any frame.
+        frameDetached = frameDetached.filter(function(fr) { var info = safeGet(fr, "detachedInfo") || {}; return !!(info.componentKey && dsKeys[info.componentKey]); });
         var rawFrom = rawWarnings.length;
-        collectRaw(finalFrames[ff], rawWarnings);
+        if (finalFrames.length > 1 && !frameList.length && !frameDetached.length) { skippedEmpty++; }
+        else { collectRaw(finalFrames[ff], rawWarnings); }
         for (var rw = rawFrom; rw < rawWarnings.length; rw++) { rawWarnings[rw].frameId = finalFrames[ff].id; rawWarnings[rw].frameName = finalFrames[ff].name; }
         frameInstanceCounts.push(frameList.length + frameDetached.length);
         for (var fl = 0; fl < frameList.length; fl++) {
@@ -595,6 +643,8 @@ function handleRunAudit(msg) {
       }
 
       if (rawWarnings.length >= RAW_MAX) { notes.push({ code: "raw_more", n: RAW_MAX }); }
+      if (skippedEmpty) { notes.push({ code: "empty_skipped", n: skippedEmpty }); }
+      if (cancelled()) { return; }
       sendStatus(allInstances.length + " instances found — analyzing...", "st_found", { n: allInstances.length });
 
       var valid   = [];
@@ -613,6 +663,7 @@ function handleRunAudit(msg) {
 
       // All lookups in parallel (cached per key), then classify each instance like the main pass.
       function resolveDeferred() {
+        if (cancelled()) { return Promise.resolve(); }
         sendStatus("Checking " + deferred.length + " component(s) from other files…", "st_remote", { n: deferred.length });
         return Promise.all(deferred.map(function(d) {
           return lookupRemoteComponent(d.main.key, dsFileNames).then(function(info) {
@@ -620,7 +671,7 @@ function handleRunAudit(msg) {
               return finishDS(d.instance, d.main, d.overrides, componentNames(d.main).name, dsFileNames[info.fileKey]);
             }
             var issue = buildInvalidItem(d.instance, info.state === "missing" ? "outdated" : "external_library", d.main, d.overrides);
-            if (info.fileName && info.state === "found") { issue.source = info.fileName; }
+            if (info.fileName && info.state === "found") { issue.source = info.fileName; if (isArchivedLibrary(info.fileName)) { issue.archived = true; } }
             if (info.state === "unknown") { issue.unverified = true; unverified++; }   // API didn't answer: EXT is a guess
             return finishIssue(d.instance, issue, null);
           }).catch(function() {
@@ -643,6 +694,9 @@ function handleRunAudit(msg) {
       }
 
       function finishIssue(instance, issue, sourceName) {
+        // A team rule (gist) accepts this exact pattern everywhere — no per-instance exception needed.
+        var rule = matchTeamRule(issue);
+        if (rule) { valid.push(buildRuleItem(instance, issue, rule, sourceName)); return Promise.resolve(); }
         return checkResolution(instance, issue).then(function(res) {
           if (res.state === "resolved") { valid.push(buildResolvedItem(instance, issue, res.record, sourceName)); }
           else {
@@ -655,6 +709,7 @@ function handleRunAudit(msg) {
       // Each instance: main component → class → issue (+ resolution). Runs AUDIT_CONCURRENCY at a time;
       // results are put back in layer order at the end, so the list doesn't depend on timing.
       function classify(instance) {
+        if (cancelled()) { return; }
         return getMain(instance).then(function(main) {
           if (!main) { pendingMain.push(instance); return; }   // retried below before it counts as MIS
 
@@ -682,6 +737,7 @@ function handleRunAudit(msg) {
 
       var lastProgress = 0;
       function progress(done, total) {
+        if (cancelled()) { return; }
         var now = Date.now();
         if (done < total && now - lastProgress < 250) { return; }
         lastProgress = now;
@@ -691,6 +747,7 @@ function handleRunAudit(msg) {
       function byLayerOrder(a, b) { return order[a.id] - order[b.id]; }
 
       function finish() {
+        if (cancelled()) { return; }          // stopped: nothing sent, nothing written
         valid.sort(byLayerOrder);
         invalid.sort(byLayerOrder);
         // Which audited frame each result belongs to (the UI can group by frame when several were audited).
@@ -742,14 +799,14 @@ function handleRunAudit(msg) {
         };
 
         finalizeVerification(finalFrames, frameInstanceCounts, frameIssueCounts, libKeys, frameResolvedCounts)
-          .then(function(st) { mainMemo = null; sendResult(st); })
+          .then(function(st) { if (cancelled()) { return; } mainMemo = null; sendResult(st); })
           .catch(function() { mainMemo = null; sendResult([]); });
       }
 
       // Right after a file opens, Figma can answer "no main component" while library components are still
       // loading. Those instances are asked again a few times (gently) before they count as MIS.
       function retryPendingMain(round) {
-        if (!pendingMain.length) { return Promise.resolve(); }
+        if (!pendingMain.length || cancelled()) { return Promise.resolve(); }
         if (round >= MAIN_RETRY_MS.length) {
           // Still no main component: MIS — checked against accepted exceptions like every other issue.
           var missing = pendingMain;
@@ -773,6 +830,7 @@ function handleRunAudit(msg) {
     });
 
   }).catch(function(err) {
+    if (cancelled()) { return; }
     if (err && err.code === "no_libraries") { send("ERROR", { text: "", code: "no_libraries" }); return; }
     if (err && (err.status === 401 || err.status === 403)) {
       // Bad token, or the bot account can't open this library file. /me tells them apart.
@@ -1222,9 +1280,17 @@ function rawProblems(node) {
   return out;
 }
 
-function collectRaw(node, out) {
+// A library whose file name says it is archived / deprecated (e.g. "DS (Archive- 18 Mordad 04)").
+var ARCHIVED_LIB_RE = /archive|archived|deprecated|legacy|آرشیو|منسوخ/i;
+function isArchivedLibrary(name) { return !!name && ARCHIVED_LIB_RE.test(name); }
+
+// Shapes drawn by hand inside a group (badges, illustrations): artwork, not UI — no raw-colour warnings.
+var VECTOR_ART = { VECTOR: true, BOOLEAN_OPERATION: true, STAR: true, POLYGON: true, LINE: true, ELLIPSE: true };
+
+function collectRaw(node, out, inGroup) {
   if (!node || node.visible === false || out.length >= RAW_MAX) { return; }
   if (node.type === "INSTANCE") { return; }                    // components are checked by the audit itself
+  if (inGroup && VECTOR_ART[node.type]) { return; }
   if (node.type !== "GROUP" && node.type !== "SECTION" && node.type !== "SLICE") {
     var probs = rawProblems(node);
     if (probs.length) {
@@ -1232,8 +1298,9 @@ function collectRaw(node, out) {
     }
   }
   if (node.type === "BOOLEAN_OPERATION") { return; }           // its parts are drawn with the operation's paint
+  var grp = node.type === "GROUP" ? true : (isFrameLike(node) ? false : !!inGroup);   // a frame inside a group is UI again
   if (node.children) {
-    for (var i = 0; i < node.children.length; i++) { collectRaw(node.children[i], out); }
+    for (var i = 0; i < node.children.length; i++) { collectRaw(node.children[i], out, grp); }
   }
 }
 
@@ -1697,7 +1764,7 @@ function getVerificationState(frame) {
   var log = readLog(frame);
   var withLog = function(fp) {
     // A logged frame whose fingerprint moved since the last entry changed without anyone logging it.
-    if (fp && log.length) { detectChange(frame, log, fp); }
+    if (fp && log.length) { detectChange(frame, log, fp); retryAttribution(frame, readLog(frame)); }
     base.log = readLog(frame);
     return base;
   };
@@ -1860,7 +1927,7 @@ function lastFp(log) {
 function appendChange(node, entry) {
   var log = readLog(node);
   var last = log.length ? log[log.length - 1] : null;
-  if (last && last.k === "c" && last.src === entry.src && (last.uid || null) === (entry.uid || null) &&
+  if (last && last.k === "c" && last.src === entry.src && (last.uid || null) === (entry.uid || null) && (last.by || null) === (entry.by || null) &&
       Date.parse(entry.at) - Date.parse(last.at) < LOG_MERGE_MS) {
     last.at = entry.at; last.fp = entry.fp;
     last.d = mergeDiff(last.d, entry.d);
@@ -1907,25 +1974,57 @@ function otherActiveUsers() {
 function recordDetectedChange(frame, log, fp, now, d) {
   var from = lastEntryTime(log);
   // A remote change: if exactly one other person was in the file it was them; with several, keep the candidates.
-  var rw = remoteWho[frame.id], by = null, cand = null;
+  var rw = remoteWho[frame.id], by = null, cand = null, maybe = null;
   if (rw && Date.now() - rw.at < 10 * 60 * 1000 && rw.names.length) {
     if (rw.names.length === 1) { by = rw.names[0]; } else { cand = rw.names.slice(0, 6); }
     delete remoteWho[frame.id];
   }
-  var entry = appendChange(frame, { k: "c", at: now || new Date().toISOString(), by: by, uid: null, src: by ? "r" : "d", cand: cand, from: from, fp: fp, d: d || null });
-  return fileEditorsBetween(from, entry.at).then(function(names) {
-    if (!names || !names.length) { return; }
+  // Not seen happening (the plugin was closed): the people in the file now are the likely editors.
+  if (!by && !cand) { var here = otherActiveUsers(); if (here.length) { maybe = here.slice(0, 6); } }
+  appendChange(frame, { k: "c", at: now || new Date().toISOString(), by: by, uid: null, src: by ? "r" : "d", cand: cand, maybe: maybe, from: from, fp: fp, d: d || null });
+  return by ? Promise.resolve() : attributeFromVersions(frame);
+}
+
+// Who made an unattributed change, from Figma's version history (team build). Figma saves a version some time
+// after the edit, so this runs again on later checks (ATTR_RETRY_MS) until a version names someone or ATTR_GIVE_UP_MS.
+var ATTR_RETRY_MS   = 2 * 60 * 1000;
+var ATTR_GIVE_UP_MS = 48 * 60 * 60 * 1000;
+var attributing = {};
+function unattributed(log) {
+  for (var i = log.length - 1; i >= 0; i--) {
+    var e = log[i];
+    if (e.k !== "c") { continue; }
+    if (e.src === "d" && !e.by && !(e.ed && e.ed.length) && Date.now() - Date.parse(e.at) < ATTR_GIVE_UP_MS) { return { e: e, i: i }; }
+    return null;                                       // only the latest change is still worth resolving
+  }
+  return null;
+}
+function attributeFromVersions(frame) {
+  if (isDevMode() || attributing[frame.id]) { return Promise.resolve(); }
+  var hit = unattributed(readLog(frame));
+  if (!hit) { return Promise.resolve(); }
+  attributing[frame.id] = true;
+  var at = hit.e.at, fp = hit.e.fp;
+  return fileEditorsBetween(hit.e.from, at).then(function(res) {
     var l = readLog(frame);
     for (var i = l.length - 1; i >= 0; i--) {
-      if (l[i].k === "c" && l[i].src === "d" && l[i].fp === fp) {
-        var ed = l[i].ed || [];
-        for (var j = 0; j < names.length; j++) { if (ed.indexOf(names[j]) < 0) { ed.push(names[j]); } }
-        l[i].ed = ed.slice(0, 8);
-        writeLog(frame, l);
-        break;
-      }
+      var e = l[i];
+      if (e.k !== "c" || e.at !== at || e.fp !== fp) { continue; }
+      e.vt = Date.now();
+      if (res.names.length === 1) { e.by = res.names[0]; e.src = "v"; delete e.why; }      // only one person edited the file then
+      else if (res.names.length) { e.ed = res.names.slice(0, 8); delete e.why; }
+      else { e.why = res.why; }
+      writeLog(frame, l);
+      break;
     }
-  }, function() {});
+  }).then(function() { delete attributing[frame.id]; }, function() { delete attributing[frame.id]; });
+}
+function retryAttribution(frame, log) {
+  var hit = unattributed(log);
+  if (!hit || isDevMode()) { return; }
+  if (hit.e.why === "no_key" || hit.e.why === "public") { return; }
+  if (hit.e.vt && Date.now() - hit.e.vt < ATTR_RETRY_MS) { return; }
+  attributeFromVersions(frame);
 }
 
 // Change noticed while checking the selection (someone edited without Darooghe open).
@@ -2017,7 +2116,7 @@ function trackLocalChanges() {
 
 // Version history (team build): who saved versions of this file between two moments.
 // File level, not frame level — shown as "people who edited the file in this window".
-function fileEditorsBetween() { return Promise.resolve([]); }
+function fileEditorsBetween() { return Promise.resolve({ names: [], why: "public" }); }
 
 function verifyTargetsFromSelection() {
   var sel = figma.currentPage.selection;
@@ -2229,6 +2328,53 @@ function swapList(overrides) {
   return out.sort();
 }
 
+// ── Team rules (approved patterns, from the guidelines gist) ──
+// guidelines.rules: [{ reason, component, name, overrides?: ["Field@layer=value", …], note, by, at }]
+// An issue matches when its type (EXT/OLD as one) and component (set key, or component key) are the rule's
+// and every override it has is listed in the rule (no "overrides" = any). MIS has no component, so no rule.
+var teamRules = [];
+function setTeamRules(guidelines) {
+  var list = guidelines && Array.isArray(guidelines.rules) ? guidelines.rules : [];
+  teamRules = [];
+  for (var i = 0; i < list.length; i++) {
+    var r = list[i];
+    if (!r || typeof r.reason !== "string" || typeof r.component !== "string" || !r.component) { continue; }
+    teamRules.push({
+      reason: r.reason, component: r.component, name: r.name ? String(r.name) : "",
+      overrides: Array.isArray(r.overrides) ? r.overrides.map(String) : null,
+      note: r.note ? String(r.note) : "", by: r.by ? String(r.by) : "", at: r.at ? String(r.at) : "",
+    });
+  }
+  send("TEAM_RULES", { rules: teamRules });
+}
+function overrideStrings(overrides) {
+  var out = [];
+  for (var i = 0; i < (overrides || []).length; i++) { var o = overrides[i]; out.push(o.field + "@" + o.node + "=" + (o.value || "")); }
+  return out;
+}
+function matchTeamRule(issue) {
+  if (!teamRules.length || !issue || !issue.componentKey || issue.reason === "missing_main") { return null; }
+  var ov = overrideStrings(issue.overrides);
+  for (var i = 0; i < teamRules.length; i++) {
+    var r = teamRules[i];
+    if (sigReason(r.reason) !== sigReason(issue.reason) || r.component !== issue.componentKey) { continue; }
+    if (r.overrides) {
+      var all = true;
+      for (var k = 0; k < ov.length; k++) { if (r.overrides.indexOf(ov[k]) < 0) { all = false; break; } }
+      if (!all) { continue; }
+    }
+    return r;
+  }
+  return null;
+}
+function buildRuleItem(instance, issue, rule, sourceName) {
+  var item = buildValidItem(instance, issue.componentName, sourceName);
+  item.resolved      = { by: rule.by, at: rule.at, note: rule.note, rule: true };
+  item.resolvedIssue = issue;
+  return item;
+}
+
+
 function checkResolution(instance, issue) {
   var rec = readResolution(instance);
   if (!rec) { return Promise.resolve({ state: "none" }); }
@@ -2422,6 +2568,7 @@ function buildDetachedItem(frame, dsNames, dsSets) {
     name              : frame.name,
     reason            : "detached",
     overrides         : [],
+    componentKey      : key || null,
     mainComponentName : compName,
     componentName     : setName || compName,
     variantName       : setName ? compName : null,
@@ -2433,7 +2580,10 @@ function buildDetachedItem(frame, dsNames, dsSets) {
 
 function buildInvalidItem(instance, reason, mainComp, overrides) {
   var names = componentNames(mainComp);
+  var setKey = null;
+  try { setKey = mainComp && mainComp.parent && mainComp.parent.type === "COMPONENT_SET" ? mainComp.parent.key : null; } catch(e) { setKey = null; }
   return {
+    componentKey      : setKey || (mainComp ? mainComp.key : null),   // component set (or component): what team rules name
     id                : instance.id,
     name              : instance.name,
     reason            : reason,
