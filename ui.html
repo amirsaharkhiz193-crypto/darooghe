@@ -1894,7 +1894,10 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.14.0", date: "2026-11-13", current: true, changes: [
+      { version: "2.14.1", date: "2026-11-13", current: true, changes: [
+        { type: "fix", text: "Small internal tidy-ups" },
+      ]},
+      { version: "2.14.0", date: "2026-11-13", current: false, changes: [
         { type: "new", text: "Summary CSV: one row per frame (score, issues by type, overrides by kind, warnings, plugin version, date) — handy for tracking compliance over time" },
         { type: "new", text: "The details CSV now has the frame, plugin version and audit date on every row" },
         { type: "fix", text: "The selection bar (accept several issues at once) keeps an even padding and wraps neatly in a narrow window" },
@@ -2128,14 +2131,11 @@
         selectRow: "Select {name}",
         escBtn: "Ask the DS team", escNotePh: "What do you need? e.g. allow this, or add a variant",
         escSend: "Send", escSending: "Sending…", escTeam: "the DS team", escAllSent: "These were already sent to the DS team.", bulkNotePh: "Note (optional)",
-        escMsgAskMany: "**{who}** asks the DS team about {count} in {k} components:",
         escHint: "Posts this issue, its links and your note to {channel} on Mattermost.",
         escDone: "Sent to {channel}.", escSentTag: "Sent to the DS team · {who} · {when}", escSentSome: "{n} of {total} already sent to the DS team",
         escErr_network: "Couldn't reach Mattermost. Connect to the company network and try again.",
         escErr_not_configured: "Sending to the DS team isn't set up. Ask an admin.",
-        escMsgTitle: "Darooghe · needs a design system decision", escMsgAsk: "**{who}** asks the DS team about {count} of {comp} ({reason}).",
-        escMsgN: "{n} instances", escMsgOne: "1 instance", escMsgFile: "File", escMsgScreens: "Screens", escMsgVariant: "Variant",
-        escMsgOverrides: "Overrides", escMsgLib: "Library", escMsgNote: "Note", escMsgMore: "+{n} more", escMsgFoot: "Sent from Darooghe {v}",
+        escMsgMore: "+{n} more",
         mmTitle: "Ask the DS team (Mattermost)", mmHint: "Designers can send an issue to the DS team's channel when they need a decision. Paste the channel's incoming webhook; it's kept in the team config.",
         mmUrlLabel: "Incoming webhook URL", mmChannelLabel: "Channel name (shown to designers)", mmChannelPh: "e.g. ~design-system",
         mmSave: "Save for everyone", mmRemove: "Turn off", mmOn: "On: designers send issues to {channel}.", mmOff: "Off: designers can't send issues yet.",
@@ -2332,14 +2332,11 @@
         selectRow: "انتخاب {name}",
         escBtn: "ارسال به تیم دیزاین سیستم", escNotePh: "چه تصمیمی لازم است؟ مثلاً مجاز شود یا ورینت اضافه شود",
         escSend: "ارسال", escSending: "در حال ارسال…", escTeam: "تیم دیزاین سیستم", escAllSent: "این موارد قبلاً برای تیم دیزاین سیستم ارسال شده‌اند.", bulkNotePh: "یادداشت (اختیاری)",
-        escMsgAskMany: "**{who}** دربارهٔ {count} در {k} کامپوننت نظر تیم دیزاین سیستم را می‌خواهد:",
         escHint: "این ایراد، لینک‌هایش و یادداشت شما در مترموست برای {channel} ارسال می‌شود.",
         escDone: "برای {channel} ارسال شد.", escSentTag: "ارسال‌شده برای تیم دیزاین سیستم · {who} · {when}", escSentSome: "{n} مورد از {total} قبلاً ارسال شده",
         escErr_network: "به مترموست وصل نشد. به شبکهٔ شرکت وصل شوید و دوباره امتحان کنید.",
         escErr_not_configured: "ارسال به تیم دیزاین سیستم تنظیم نشده. به ادمین بگویید.",
-        escMsgTitle: "داروغه · تصمیم تیم دیزاین سیستم لازم است", escMsgAsk: "**{who}** دربارهٔ {count} از {comp} ({reason}) نظر تیم دیزاین سیستم را می‌خواهد.",
-        escMsgN: "{n} اینستنس", escMsgOne: "۱ اینستنس", escMsgFile: "فایل", escMsgScreens: "صفحه‌ها", escMsgVariant: "ورینت",
-        escMsgOverrides: "اوراید‌ها", escMsgLib: "لایبرری", escMsgNote: "یادداشت", escMsgMore: "+{n} مورد دیگر", escMsgFoot: "ارسال از داروغه {v}",
+        escMsgMore: "+{n} مورد دیگر",
         mmTitle: "ارسال به تیم دیزاین سیستم (مترموست)", mmHint: "طراح‌ها وقتی تصمیم تیم دیزاین سیستم لازم است، ایراد را به کانال تیم می‌فرستند. وب‌هوک ورودی کانال را اینجا بگذارید؛ در فایل تنظیمات تیم ذخیره می‌شود.",
         mmUrlLabel: "آدرس وب‌هوک ورودی (Incoming webhook)", mmChannelLabel: "نام کانال (به طراح‌ها نشان داده می‌شود)", mmChannelPh: "مثلاً ~design-system",
         mmSave: "ذخیره برای همه", mmRemove: "خاموش کردن", mmOn: "روشن: طراح‌ها ایرادها را برای {channel} می‌فرستند.", mmOff: "خاموش: طراح‌ها هنوز نمی‌توانند ایراد بفرستند.",
@@ -4039,57 +4036,45 @@
     }
     // Mattermost markdown; names can't break the layout or ping anyone (@channel).
     function mdEsc(v) { return String(v == null ? "" : v).replace(/\s+/g, " ").trim().replace(/([\\`*_\[\]<>|#~])/g, "\\$1").replace(/@/g, "@\u200b"); }
+    // Short on purpose: who and which file, the note, then one line per component — what it is, how many,
+    // and a link per screen straight to the layer. No variants, libraries or footer.
     function escMessage(list, note) {
       var d = state.auditData || {};
       var who = ((state.realUser || state.user) || {}).name || "—";
-      // One block per component + issue (a selection can mix several), most instances first.
       var groups = [], byKey = {};
       list.forEach(function(it) {
-        var k = reasonKey(it.reason) + "|" + (it.componentKey || it.componentName || it.mainComponentName || it.name) + "|" + (it.variantName || "") + "|" + (it.source || "");
+        var k = reasonKey(it.reason) + "|" + (it.componentKey || escComp(it));
         if (!byKey[k]) { byKey[k] = []; groups.push(byKey[k]); }
         byKey[k].push(it);
       });
       groups.sort(function(a, b) { return b.length - a.length; });
-      var count = function(n) { return n === 1 ? t("escMsgOne") : t("escMsgN").replace("{n}", num(n)); };
-      var L = ["#### :mag: " + t("escMsgTitle")];
-      if (groups.length === 1) {
-        L.push(t("escMsgAsk").replace("{who}", mdEsc(who)).replace("{count}", count(list.length)).replace("{comp}", "**" + mdEsc(escComp(groups[0][0])) + "**").replace("{reason}", mdEsc(escReason(groups[0][0]))), "");
-        if (d.fileKey) { L.push(escFileLine(d)); }
-        L = L.concat(escGroupLines(groups[0], d));
-      } else {
-        L.push(t("escMsgAskMany").replace("{who}", mdEsc(who)).replace("{count}", count(list.length)).replace("{k}", num(groups.length)), "");
-        if (d.fileKey) { L.push(escFileLine(d)); }
-        groups.slice(0, ESC_MAX_GROUPS).forEach(function(g) {
-          L.push("", "**" + mdEsc(escComp(g[0])) + "** · " + mdEsc(escReason(g[0])) + " · ×" + num(g.length));
-          L = L.concat(escGroupLines(g, d));
-        });
-        if (groups.length > ESC_MAX_GROUPS) { L.push("", t("escMsgMore").replace("{n}", num(groups.length - ESC_MAX_GROUPS))); }
-      }
-      if (note) { L.push("", "> " + t("escMsgNote") + ": " + mdEsc(note)); }
-      L.push("", "_" + t("escMsgFoot").replace("{v}", state.version || "").trim() + "_");
+      var head = ":mag: **" + mdEsc(who) + "**";
+      if (d.fileKey) { head += " · [" + mdEsc(d.fileName || d.fileKey) + "](https://www.figma.com/design/" + d.fileKey + "/)"; }
+      var L = [head];
+      if (note) { L.push("> " + mdEsc(note)); }
+      groups.slice(0, ESC_MAX_GROUPS).forEach(function(g) { L.push(escGroupLine(g, d)); });
+      if (groups.length > ESC_MAX_GROUPS) { L.push(t("escMsgMore").replace("{n}", num(groups.length - ESC_MAX_GROUPS))); }
       return L.join("\n");
     }
-    var ESC_MAX_GROUPS = 12;   // keeps the post well under Mattermost's 16k limit
+    var ESC_MAX_GROUPS = 12;
     function escComp(it) { return it.componentName || it.mainComponentName || it.name || ""; }
-    function escReason(it) { var m = REASON_META[reasonKey(it.reason)]; return m ? m.code + " · " + t(m.labelKey) : ""; }
-    function escFileLine(d) { return "- " + t("escMsgFile") + ": [" + mdEsc(d.fileName || d.fileKey) + "](https://www.figma.com/design/" + d.fileKey + "/)"; }
-    function escGroupLines(list, d) {
-      var first = list[0], key = reasonKey(first.reason), L = [];
-      // One link per screen, to the first instance on it — the DS team lands on the layer itself.
+    function escGroupLine(list, d) {
+      var first = list[0], meta = REASON_META[reasonKey(first.reason)];
+      var line = "- **" + mdEsc(escComp(first)) + "** · " + (meta ? meta.code : "") + (list.length > 1 ? " ×" + num(list.length) : "");
+      // MOD: which kinds of override (Fill, Padding…), not their values.
+      var kinds = [];
+      list.forEach(function(it) { (it.overrides || []).forEach(function(o) { var f = o.type === "swap" ? "Swap" : fieldLabel(o.field); if (kinds.indexOf(f) < 0) { kinds.push(f); } }); });
+      if (kinds.length) { line += " (" + mdEsc(kinds.slice(0, 4).join(state.lang === "fa" ? "، " : ", ")) + (kinds.length > 4 ? "…" : "") + ")"; }
+      // One link per screen (its last name part), to the first instance on it.
       var seen = {}, screens = [];
       list.forEach(function(it) {
         var fk = it.frameId || (it.parent && it.parent.id) || it.id;
         if (seen[fk]) { return; } seen[fk] = 1;
-        var nm = mdEsc(it.frameName || (it.parent && it.parent.name) || escComp(it));
-        screens.push(d.fileKey ? "[" + nm + "](" + nodeLink(d.fileKey, it.id) + ")" : nm);
+        var nm = String(it.frameName || (it.parent && it.parent.name) || escComp(it)).split(" / ").pop();
+        screens.push(d.fileKey ? "[" + mdEsc(nm) + "](" + nodeLink(d.fileKey, it.id) + ")" : mdEsc(nm));
       });
-      if (screens.length) { L.push("- " + t("escMsgScreens") + ": " + screens.slice(0, 5).join(" · ") + (screens.length > 5 ? " " + t("escMsgMore").replace("{n}", num(screens.length - 5)) : "")); }
-      if (first.variantName) { L.push("- " + t("escMsgVariant") + ": " + mdEsc(first.variantName)); }
-      if (key === "external_library" && first.source) { L.push("- " + t("escMsgLib") + ": " + mdEsc(first.source)); }
-      var ov = [];
-      list.forEach(function(it) { (it.overrides || []).forEach(function(o) { var sx = mdEsc(o.node) + " › " + mdEsc(fieldLabel(o.field)) + (o.value ? " " + mdEsc(o.value) : ""); if (ov.indexOf(sx) < 0) { ov.push(sx); } }); });
-      if (ov.length) { L.push("- " + t("escMsgOverrides") + ": " + ov.slice(0, 8).join(" · ") + (ov.length > 8 ? " " + t("escMsgMore").replace("{n}", num(ov.length - 8)) : "")); }
-      return L;
+      if (screens.length) { line += " · " + screens.slice(0, 3).join(" · ") + (screens.length > 3 ? " " + t("escMsgMore").replace("{n}", num(screens.length - 3)) : ""); }
+      return line;
     }
 
     function highlightAll(list) {
