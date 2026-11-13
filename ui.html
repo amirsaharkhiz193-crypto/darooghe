@@ -225,6 +225,7 @@
     .item__note-input { flex: 1 1 180px; min-width: 120px; padding: 4px 8px; background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--r-sm); color: var(--text); font-family: var(--font); font-size: 11px; }
     .item__note-input:focus { outline: none; border-color: var(--accent); }
     .item__stale { margin-top: 4px; font-size: 11px; color: var(--warning); line-height: 1.5; }
+    .item__esc { margin-top: 4px; font-size: 11px; color: var(--text-2); line-height: 1.5; display: flex; align-items: center; gap: 4px; }
     .item__code--resolved { color: var(--accent); background: transparent; border-color: var(--accent); border-style: dashed; }
     .item__resolved { margin-top: 2px; font-size: 11px; color: var(--text-2); line-height: 1.5; }
     .item__resolved-note { color: var(--text); }
@@ -1238,8 +1239,12 @@
     .item__pick:indeterminate { background: var(--brand-fill); box-shadow: none; }
     .item__pick:indeterminate::after { content: ""; width: 8px; height: 2px; border-radius: 1px; background: var(--on-brand); }
     .item__pick:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-    .bulkbar { margin: 0 12px 12px; padding: 8px 8px 8px 14px; padding-inline: 14px 8px; border-radius: var(--r-pill); background: var(--surface-3); box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); }
-    .bulkbar__note { background: var(--surface); }
+    /* One line when it fits; otherwise count + note on top and the actions as one group under them, at the end.
+       Even padding and a card radius, so the two-line bar doesn't look like a stretched pill. */
+    .bulkbar { margin: 0 12px 12px; padding: 10px; padding-inline-start: 16px; gap: 10px 12px; border-radius: var(--r-lg); background: var(--surface-3); box-shadow: 0 10px 30px -10px rgba(0,0,0,.6); }
+    .bulkbar__note { background: var(--surface); flex: 1 1 180px; height: var(--h-md); }
+    .bulkbar__acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-inline-start: auto; }
+    .bulkbar__acts .btn { height: var(--h-md); padding-inline: 14px; }
     .res-panel__foot { padding: 0 12px 12px; }
     .res-panel__foot .btn { height: 34px; }
     .instance-list > .empty, .res-panel .instance-list > .empty { box-shadow: none; }
@@ -1450,6 +1455,11 @@
     .actionbar__cancel { background: var(--surface-2); color: var(--text); }
     .actionbar__cancel:hover { background: var(--danger-dim); color: var(--text); }
     .scan__cancel { margin-top: 6px; }
+
+    /* Audit without saving */
+    .nowrite-row { display: flex; align-items: center; gap: 10px; min-height: 36px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .actionbar__nowrite { flex-shrink: 0; padding: 4px 10px; border-radius: var(--r-pill); background: var(--warning-dim); color: var(--text); font-size: 11px; font-weight: 700; white-space: nowrap; }
+    .actionbar__nowrite[hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -1564,7 +1574,8 @@
           <div class="ov__side">
             <div class="ov__top">
               <span class="ov__total" id="js-stat-total"></span>
-              <button class="btn btn--ghost btn--small ov__export" id="js-export-btn" data-icon="download" data-i18n="exportCsv">Export CSV</button>
+              <button class="btn btn--ghost btn--small ov__export" id="js-export-sum-btn" data-icon="download" data-i18n="exportSummary">Summary CSV</button>
+              <button class="btn btn--ghost btn--small ov__export" id="js-export-btn" data-icon="download" data-i18n="exportCsv">Details CSV</button>
             </div>
             <ul class="ov__legend">
               <li class="ov__tile"><button type="button" class="ov__go" data-go="valid"><span class="ov__dot ov__dot--ok" aria-hidden="true"></span><span class="ov__n" id="js-stat-valid">0</span><span class="ov__name" data-i18n="onSystem">On system</span></button></li>
@@ -1606,8 +1617,11 @@
         <div class="bulkbar" id="js-bulkbar" hidden>
           <span class="bulkbar__count" id="js-bulk-count" role="status" aria-live="polite"></span>
           <input class="input bulkbar__note" id="js-bulk-note" type="text" maxlength="500" data-i18n-ph="resolveNotePh" data-i18n-label="resolveNotePh" placeholder="Why is this OK? (optional)" />
-          <button type="button" class="btn btn--primary btn--small bulkbar__go" id="js-bulk-accept" data-icon="check" data-i18n="resolveBtn">Accept as exception</button>
-          <button type="button" class="btn btn--ghost btn--small" id="js-bulk-clear" data-i18n="bulkClear">Clear</button>
+          <div class="bulkbar__acts">
+            <button type="button" class="btn btn--primary btn--small bulkbar__go" id="js-bulk-accept" data-icon="check" data-i18n="resolveBtn">Accept as exception</button>
+            <button type="button" class="btn btn--ghost btn--small bulkbar__go" id="js-bulk-escalate" hidden data-icon="send" data-i18n="escBtn">Ask the DS team</button>
+            <button type="button" class="btn btn--ghost btn--small bulkbar__go" id="js-bulk-clear" data-i18n="bulkClear">Clear</button>
+          </div>
         </div>
         <div class="res-panel__foot">
           <button class="btn btn--danger-ghost" id="js-select-all-btn" style="flex:1;" data-icon="pointer" data-i18n="selectAllIssues">Select all issues</button>
@@ -1705,6 +1719,8 @@
           <span class="status-inline" id="js-id-status" role="status" aria-live="polite"></span>
         </div>
       </div>
+
+      <!---->
 
       <h2 class="sgroup" id="js-sg-admin" hidden data-i18n="sgAdmin">Admin</h2>
       <!-- Resolution report (admins only) -->
@@ -1809,6 +1825,7 @@
       </div>
       <button type="button" class="icon-btn actionbar__refresh" id="js-refresh-btn" data-i18n-title="refreshList"><span class="ico" data-ico="refresh" data-ico-size="sm"></span></button>
       <button type="button" class="actionbar__libs" id="js-edit-libs-btn" data-i18n-title="libraries"><span class="ico" data-ico="library" data-ico-size="sm"></span><span id="js-lib-count">0</span></button>
+      <span class="actionbar__nowrite" id="js-nowrite-pill" hidden data-i18n="noWritePill">Not saving</span>
       <button class="btn btn--primary actionbar__run" id="js-run-btn" disabled data-icon="scan" data-i18n="runAudit">Run audit</button>
       <button type="button" class="btn btn--ghost actionbar__run actionbar__cancel" id="js-cancel-btn" hidden data-icon="x" data-i18n="cancelAudit">Stop audit</button>
     </div>
@@ -1877,7 +1894,12 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.13.0", date: "2026-11-13", current: true, changes: [
+      { version: "2.14.0", date: "2026-11-13", current: true, changes: [
+        { type: "new", text: "Summary CSV: one row per frame (score, issues by type, overrides by kind, warnings, plugin version, date) — handy for tracking compliance over time" },
+        { type: "new", text: "The details CSV now has the frame, plugin version and audit date on every row" },
+        { type: "fix", text: "The selection bar (accept several issues at once) keeps an even padding and wraps neatly in a narrow window" },
+      ]},
+      { version: "2.13.0", date: "2026-11-13", current: false, changes: [
         { type: "new", text: "Stop a running audit (button or Esc); nothing is written to your frames" },
         { type: "fix", text: "A frame is DET only when it was detached from a design system component; detached from anything else, it is just a frame" },
         { type: "fix", text: "The audit compares against the last published version of the design system; unpublished changes don't count" },
@@ -1950,7 +1972,7 @@
         noAuditYet: "Not audited yet", noAuditYetSub: "Press Run audit to see this frame's issues here.", goToAudit: "Go to Audit",
         onSystem: "On system", offSystem: "Off system", modified: "Overridden",
         issues: "Issues", passed: "Passed", searchPh: "Search…",
-        selectAllIssues: "Select all issues", reaudit: "Re-audit", exportCsv: "Export CSV", exportDone: "CSV downloaded ({n} rows).",
+        selectAllIssues: "Select all issues", reaudit: "Re-audit", exportCsv: "Details CSV", exportDone: "CSV downloaded ({n} rows).",
         noIssuesTitle: "No issues found", noIssuesSub: "Everything on this frame is on the design system.", noValidTitle: "No system components used",
         from: "from: ",
         rMissing: "Main component missing", rLocal: "Local component", rExternal: "From another library", rModified: "Overridden DS component", rUnpublished: "Internal part used directly", typography: "Typography",
@@ -2075,6 +2097,12 @@
         frameOnly: "Only:", frameOnlyClear: "Show all frames",
         warnGroupColor: "Raw colours (no token)", warnGroupText: "Text without a text style",
         scanTitle: "Darooghe is checking…", scanCount: "{n} of {total}",
+        exportSummary: "Summary CSV", exportSummaryDone: "Summary downloaded: {n} frames.",
+        tmTitle: "Usage statistics", tmLabel: "Share audit statistics with the DS team",
+        tmHint: "Only counts (how many instances, which issue types, which components) go to the DS team's GitLab when you're on the company network. No layer or screen names, no text, no designs.",
+        noWriteTitle: "Audit without saving", noWriteLabel: "Don't save anything to the file", noWritePill: "Not saving",
+        noWriteHint: "For measuring older files: audits run as usual but no verification or history is saved in the file. Turn it off for normal work.",
+        noWriteTip: "Audits aren't saved to the file (Settings › Audit without saving)", noWriteNote: "Measured without saving: nothing was written to the file.",
         cancelAudit: "Stop audit", auditCancelled: "Audit stopped. Nothing was changed.",
         makeRule: "Make a team rule", ruleNotePh: "Why is this OK? (everyone sees it)", ruleCopy: "Copy rule", ruleSnippetLabel: "Rule (JSON)",
         ruleHint: "Paste it into the \"rules\" list in the team config (guidelines.json on GitLab; add \"rules\": [ ] if it isn't there). It applies to everyone the next time they open the plugin.",
@@ -2098,6 +2126,22 @@
         clusterFrames: "on {n} screens", clusterAccept: "Accept all {n}", clusterCanvas: "Select on canvas",
         clusterShow: "Show {n}", clusterHide: "Hide", clusterPick: "Select all {n}: {name}",
         selectRow: "Select {name}",
+        escBtn: "Ask the DS team", escNotePh: "What do you need? e.g. allow this, or add a variant",
+        escSend: "Send", escSending: "Sending…", escTeam: "the DS team", escAllSent: "These were already sent to the DS team.", bulkNotePh: "Note (optional)",
+        escMsgAskMany: "**{who}** asks the DS team about {count} in {k} components:",
+        escHint: "Posts this issue, its links and your note to {channel} on Mattermost.",
+        escDone: "Sent to {channel}.", escSentTag: "Sent to the DS team · {who} · {when}", escSentSome: "{n} of {total} already sent to the DS team",
+        escErr_network: "Couldn't reach Mattermost. Connect to the company network and try again.",
+        escErr_not_configured: "Sending to the DS team isn't set up. Ask an admin.",
+        escMsgTitle: "Darooghe · needs a design system decision", escMsgAsk: "**{who}** asks the DS team about {count} of {comp} ({reason}).",
+        escMsgN: "{n} instances", escMsgOne: "1 instance", escMsgFile: "File", escMsgScreens: "Screens", escMsgVariant: "Variant",
+        escMsgOverrides: "Overrides", escMsgLib: "Library", escMsgNote: "Note", escMsgMore: "+{n} more", escMsgFoot: "Sent from Darooghe {v}",
+        mmTitle: "Ask the DS team (Mattermost)", mmHint: "Designers can send an issue to the DS team's channel when they need a decision. Paste the channel's incoming webhook; it's kept in the team config.",
+        mmUrlLabel: "Incoming webhook URL", mmChannelLabel: "Channel name (shown to designers)", mmChannelPh: "e.g. ~design-system",
+        mmSave: "Save for everyone", mmRemove: "Turn off", mmOn: "On: designers send issues to {channel}.", mmOff: "Off: designers can't send issues yet.",
+        mmNeedGl: "Connect GitLab under Team rules first; the webhook is saved in the team config.",
+        mmSaved: "Saved. Everyone gets it on their next plugin start.", mmRemoved: "Turned off for everyone.",
+        mmErr_bad_url: "That isn't a Mattermost incoming-webhook URL (https://…/hooks/…).",
         bulkDone: "{n} accepted as exceptions.",
         bulkFailed: " {n} couldn't be accepted.",
         pickFrameTitle: "Choose a frame",
@@ -2132,7 +2176,7 @@
         noAuditYet: "هنوز بررسی نشده", noAuditYetSub: "«شروع بررسی» را بزنید تا ایرادهای این فریم اینجا بیاید.", goToAudit: "رفتن به بررسی",
         onSystem: "منطبق", offSystem: "خارج از سیستم", modified: "اوراید‌شده",
         issues: "ایرادها", passed: "منطبق", searchPh: "جست‌وجو…",
-        selectAllIssues: "انتخاب همهٔ ایرادها", reaudit: "بررسی دوباره", exportCsv: "خروجی CSV", exportDone: "CSV دانلود شد ({n} ردیف).",
+        selectAllIssues: "انتخاب همهٔ ایرادها", reaudit: "بررسی دوباره", exportCsv: "CSV جزئیات", exportDone: "CSV دانلود شد ({n} ردیف).",
         noIssuesTitle: "ایرادی پیدا نشد", noIssuesSub: "همهٔ کامپوننت‌های این فریم با دیزاین سیستم منطبق‌اند.", noValidTitle: "هیچ کامپوننتی از دیزاین سیستم استفاده نشده",
         from: "از ",
         rMissing: "کامپوننت مرجع پیدا نشد", rLocal: "کامپوننت لوکال", rExternal: "کامپوننت لایبرری دیگر", rModified: "اوراید روی کامپوننت", rUnpublished: "استفادهٔ مستقیم از بخش داخلی", typography: "تایپوگرافی",
@@ -2257,6 +2301,12 @@
         frameOnly: "فقط:", frameOnlyClear: "نمایش همهٔ فریم‌ها",
         warnGroupColor: "رنگ ثابت (بدون توکن)", warnGroupText: "متن بدون استایل متن",
         scanTitle: "داروغه در حال بررسی است…", scanCount: "{n} از {total}",
+        exportSummary: "CSV خلاصه", exportSummaryDone: "خلاصه دانلود شد: {n} فریم.",
+        tmTitle: "آمار استفاده", tmLabel: "ارسال آمار بررسی‌ها برای تیم دیزاین سیستم",
+        tmHint: "فقط عددها (تعداد اینستنس‌ها، نوع ایرادها، کامپوننت‌ها) وقتی به شبکهٔ شرکت وصل هستید برای GitLab تیم دیزاین سیستم ارسال می‌شود. نه اسم لایه و صفحه، نه متن، نه طرح.",
+        noWriteTitle: "بررسی بدون ثبت", noWriteLabel: "هیچ چیزی در فایل ثبت نشود", noWritePill: "بدون ثبت",
+        noWriteHint: "برای اندازه‌گیری فایل‌های قدیمی: بررسی مثل همیشه انجام می‌شود ولی تأیید و تاریخچه در فایل ثبت نمی‌شود. برای کار عادی خاموشش کنید.",
+        noWriteTip: "بررسی‌ها در فایل ثبت نمی‌شوند (تنظیمات › بررسی بدون ثبت)", noWriteNote: "بدون ثبت اندازه‌گیری شد؛ چیزی در فایل نوشته نشد.",
         cancelAudit: "توقف بررسی", auditCancelled: "بررسی متوقف شد. چیزی تغییر نکرد.",
         makeRule: "ساخت قانون تیمی", ruleNotePh: "چرا این مجاز است؟ (همه می‌بینند)", ruleCopy: "کپی قانون", ruleSnippetLabel: "قانون (JSON)",
         ruleHint: "آن را در فهرست \"rules\" در فایل تنظیمات تیم بگذارید (guidelines.json در GitLab؛ اگر نیست، \"rules\": [ ] را اضافه کنید). دفعهٔ بعد که پلاگین باز شود برای همه اعمال می‌شود.",
@@ -2280,6 +2330,22 @@
         clusterFrames: "در {n} صفحه", clusterAccept: "پذیرفتن هر {n} مورد", clusterCanvas: "انتخاب روی کانواس",
         clusterShow: "نمایش {n} مورد", clusterHide: "بستن", clusterPick: "انتخاب هر {n} مورد: {name}",
         selectRow: "انتخاب {name}",
+        escBtn: "ارسال به تیم دیزاین سیستم", escNotePh: "چه تصمیمی لازم است؟ مثلاً مجاز شود یا ورینت اضافه شود",
+        escSend: "ارسال", escSending: "در حال ارسال…", escTeam: "تیم دیزاین سیستم", escAllSent: "این موارد قبلاً برای تیم دیزاین سیستم ارسال شده‌اند.", bulkNotePh: "یادداشت (اختیاری)",
+        escMsgAskMany: "**{who}** دربارهٔ {count} در {k} کامپوننت نظر تیم دیزاین سیستم را می‌خواهد:",
+        escHint: "این ایراد، لینک‌هایش و یادداشت شما در مترموست برای {channel} ارسال می‌شود.",
+        escDone: "برای {channel} ارسال شد.", escSentTag: "ارسال‌شده برای تیم دیزاین سیستم · {who} · {when}", escSentSome: "{n} مورد از {total} قبلاً ارسال شده",
+        escErr_network: "به مترموست وصل نشد. به شبکهٔ شرکت وصل شوید و دوباره امتحان کنید.",
+        escErr_not_configured: "ارسال به تیم دیزاین سیستم تنظیم نشده. به ادمین بگویید.",
+        escMsgTitle: "داروغه · تصمیم تیم دیزاین سیستم لازم است", escMsgAsk: "**{who}** دربارهٔ {count} از {comp} ({reason}) نظر تیم دیزاین سیستم را می‌خواهد.",
+        escMsgN: "{n} اینستنس", escMsgOne: "۱ اینستنس", escMsgFile: "فایل", escMsgScreens: "صفحه‌ها", escMsgVariant: "ورینت",
+        escMsgOverrides: "اوراید‌ها", escMsgLib: "لایبرری", escMsgNote: "یادداشت", escMsgMore: "+{n} مورد دیگر", escMsgFoot: "ارسال از داروغه {v}",
+        mmTitle: "ارسال به تیم دیزاین سیستم (مترموست)", mmHint: "طراح‌ها وقتی تصمیم تیم دیزاین سیستم لازم است، ایراد را به کانال تیم می‌فرستند. وب‌هوک ورودی کانال را اینجا بگذارید؛ در فایل تنظیمات تیم ذخیره می‌شود.",
+        mmUrlLabel: "آدرس وب‌هوک ورودی (Incoming webhook)", mmChannelLabel: "نام کانال (به طراح‌ها نشان داده می‌شود)", mmChannelPh: "مثلاً ~design-system",
+        mmSave: "ذخیره برای همه", mmRemove: "خاموش کردن", mmOn: "روشن: طراح‌ها ایرادها را برای {channel} می‌فرستند.", mmOff: "خاموش: طراح‌ها هنوز نمی‌توانند ایراد بفرستند.",
+        mmNeedGl: "اول در بخش قانون‌های تیمی به GitLab وصل شوید؛ وب‌هوک در فایل تنظیمات تیم ذخیره می‌شود.",
+        mmSaved: "ذخیره شد. همه در اجرای بعدی پلاگین آن را می‌گیرند.", mmRemoved: "برای همه خاموش شد.",
+        mmErr_bad_url: "این آدرس وب‌هوک ورودی مترموست نیست (https://…/hooks/…).",
         bulkDone: "{n} مورد به‌عنوان استثنا ثبت شد.",
         bulkFailed: " {n} مورد ثبت نشد.",
         pickFrameTitle: "یک فریم انتخاب کنید",
@@ -2529,6 +2595,7 @@
       badgeRes        : $("js-badge-res"),
       resultsBar      : $("js-results-bar"),
       bulkBar         : $("js-bulkbar"),
+      bulkEscalate    : $("js-bulk-escalate"),
       bulkCount       : $("js-bulk-count"),
       bulkNote        : $("js-bulk-note"),
       bulkAccept      : $("js-bulk-accept"),
@@ -2601,11 +2668,13 @@
       pointer:     '<path d="m9 9 5 12 1.8-5.2L21 14Z"/><path d="M7.2 2.2 8 5.1"/><path d="m5.1 8-2.9-.8"/><path d="M14 4.1 12 6"/><path d="m6 12-1.9 2"/>',
       key:         '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
       trash:       '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+      send:        '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
       link:        '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
       library:     '<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>',
       plus:        '<path d="M12 5v14"/><path d="M5 12h14"/>',
       shield:      '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
       sparkles:    '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/>',
+      chart:       '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
       history:     '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
       wrench:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
       frame:       '<path d="M22 6H2"/><path d="M22 18H2"/><path d="M6 2v20"/><path d="M18 2v20"/>',
@@ -2779,6 +2848,15 @@
       loadFrames();
     });
     dom.runBtn.addEventListener("click", runAudit);
+    var tmCb = document.getElementById("js-tm");   // usage statistics, team build only
+    if (tmCb) { tmCb.addEventListener("change", function(e) { postToPlugin("SET_TELEMETRY", { on: e.target.checked }); }); }
+    var noWriteCb = document.getElementById("js-nowrite");   // admins, team build only
+    if (noWriteCb) { noWriteCb.addEventListener("change", function(e) { postToPlugin("SET_NO_WRITE", { on: e.target.checked }); }); }
+    function renderNoWrite() {
+      var cb = document.getElementById("js-nowrite"), pill = document.getElementById("js-nowrite-pill");
+      if (cb) { cb.checked = !!state.noWrite; }
+      if (pill) { pill.hidden = !state.noWrite; pill.setAttribute("data-tip", t("noWriteTip")); }
+    }
     document.getElementById("js-cancel-btn").addEventListener("click", cancelAudit);
     document.getElementById("js-scan-cancel").addEventListener("click", cancelAudit);
     // Esc stops a running audit (when nothing else, like a dialog or the frame list, wants it)
@@ -2792,6 +2870,7 @@
     }, { passive: true });
 
     dom.exportBtn.addEventListener("click", exportAuditCsv);
+    document.getElementById("js-export-sum-btn").addEventListener("click", exportSummaryCsv);
 
     dom.changelogBtn.addEventListener("click", openModal);
     dom.modalClose.addEventListener("click", closeModal);
@@ -2869,6 +2948,7 @@
       if (msg.type === "STATUS")                { updateScan(msg); showStatus("info", statusText(msg), true); if (msg.code === "st_progress") { setProgress(msg.n, msg.total); } }
       if (msg.type === "ERROR")                 { dom.runBtn.disabled = false; showStatus("error", errorText(msg), false); hideProgress(); setAuditing(false); }
       if (msg.type === "AUDIT_RESULT")          { handleAuditResult(msg); }
+      if (msg.type === "NO_WRITE")              { state.noWrite = !!msg.on; renderNoWrite(); }
       if (msg.type === "AUDIT_CANCELLED")       { if (state.auditing) { state.ignoreResult = true; endCancelled(); } }
       if (msg.type === "CANVAS_FRAME_SELECTED") { handleCanvasFrameSelected(msg); }
       if (msg.type === "SELECTION_CHANGED")     { handleSelectionChanged(msg); }
@@ -2899,6 +2979,11 @@
       if (msg.type === "TEAM_RULES")            { state.teamRules = msg.rules || []; renderRulesPanel(); }
       if (msg.type === "GL_STATUS")             { state.gh = msg; renderGh(); if (state.rulingKey) { renderList(); } }
       if (msg.type === "TEAM_RULE_RESULT")      { handleTeamRuleResult(msg); }
+      if (msg.type === "TELEMETRY_INFO")        { var tmP = document.getElementById("js-tm-panel"), tmC = document.getElementById("js-tm"); if (tmP) { tmP.hidden = !msg.available || isDev(); } if (tmC) { tmC.checked = !!msg.on; } }
+      if (msg.type === "ESCALATION_INFO")       { state.escalation = { enabled: !!msg.enabled, channel: msg.channel || "" }; renderMm(); if (state.auditData) { renderList(); updateBulkBar(); } }
+      if (msg.type === "ESCALATE_SEND")         { doEscalateSend(msg); }
+      if (msg.type === "ESCALATE_RESULT")       { handleEscalateResult(msg); }
+      if (msg.type === "MATTERMOST_RESULT")     { handleMmResult(msg); }
       if (msg.type === "AI_ANALYSIS_RESULT")    { handleAIResult(msg); }
       if (msg.type === "AI_ANALYSIS_ERROR")     { handleAIError(msg); }
       if (msg.type === "DO_AI_FETCH")           { handleDoAIFetch(msg); }
@@ -2918,6 +3003,7 @@
     };
 
     function setVersion(v) {
+      state.version = v;
       if (dom.versionText3) { dom.versionText3.textContent = v; }
     }
 
@@ -2968,6 +3054,10 @@
       dom.reportPanel.hidden = !rev || dev;
       var rulesPanel = document.getElementById("js-rules-panel");
       if (rulesPanel) { rulesPanel.hidden = !rev || dev || EDITION === "public"; }
+      var mmPanel = document.getElementById("js-mm-panel");
+      if (mmPanel) { mmPanel.hidden = !rev || dev || EDITION === "public"; }
+      var nwPanel = document.getElementById("js-nowrite-panel");
+      if (nwPanel) { nwPanel.hidden = !rev || dev || EDITION === "public"; }
       var sgAdmin = document.getElementById("js-sg-admin");
       if (sgAdmin) { sgAdmin.hidden = dom.tokenPanel.hidden && dom.reportPanel.hidden && (!rulesPanel || rulesPanel.hidden); }
       if (rev) {
@@ -3242,7 +3332,7 @@
       }
 
       renderAuditVerdict(data);
-      renderAuditNotes(data.notes || []);
+      renderAuditNotes((data.notes || []).concat(data.noWrite ? [{ code: "no_write" }] : []));
 
       syncFramePage();
       renderStale();
@@ -3393,6 +3483,7 @@
         if (n.code === "lookup_failed") { txt = t("noteLookupFailed").replace("{n}", num(n.n)); }
         if (n.code === "raw_more")      { txt = t("noteRawMore").replace("{n}", num(n.n)); }
         if (n.code === "empty_skipped") { txt = t("noteEmptySkipped").replace("{n}", num(n.n)); }
+        if (n.code === "no_write")      { txt = t("noWriteNote"); }
         if (txt) { texts.push(txt); }
       }
       if (!texts.length) { return; }
@@ -3645,8 +3736,8 @@
       var countEl = document.createElement("span"); countEl.className = "group__count " + countClass; countEl.textContent = num(items.length);
       var chevEl = document.createElement("span"); chevEl.className = "group__chev is-open"; chevEl.innerHTML = CHEV_SVG;
       header.appendChild(nameEl); header.appendChild(countEl); header.appendChild(chevEl);
-      // Only rows the user can accept (reviewers; every issue type is acceptable).
-      var pickable = isInvalid === true ? items.filter(function(it) { return canResolve(reasonKey(it.reason)); }) : [];
+      // Rows the user can act on in bulk: accept (reviewers) or send to the DS team (everyone, when set up).
+      var pickable = isInvalid === true ? items.filter(canPick) : [];
       if (pickable.length > 1) {
         var allOn = pickable.every(function(it) { return !!bulkSel()[it.id]; });
         var tools = document.createElement("label"); tools.className = "group__pickall";
@@ -3740,8 +3831,8 @@
       // Actions for the whole cluster
       var acts = addDiv(bodyEl, "item__actions");
       acts.addEventListener("click", function(e) { e.stopPropagation(); });
-      var pickable = !warn && canResolve(key) ? list : [];
-      if (pickable.length) {
+      var pickable = warn ? [] : list.filter(canPick);
+      if (!warn && canResolve(key)) {
         var acc = document.createElement("button"); acc.type = "button"; acc.className = "item__resolve";
         acc.appendChild(icoEl("check", "sm")); acc.appendChild(document.createTextNode(" " + t("clusterAccept").replace("{n}", num(list.length))));
         acc.addEventListener("click", function() {
@@ -3765,6 +3856,14 @@
       if (!warn && canMakeRule(first)) {
         acts.appendChild(ruleButton(list, "c:" + sig));
         if (state.rulingKey === "c:" + sig) { bodyEl.appendChild(ruleBox(list, "c:" + sig)); }
+      }
+      if (!warn) {
+        escTag(bodyEl, list);
+        var unsent = list.filter(function(it) { return !it.escalated; });
+        if (canEscalate() && unsent.length) {
+          acts.appendChild(escButton(unsent, "c:" + sig));
+          if (state.escKey === "c:" + sig) { bodyEl.appendChild(escBox(unsent, "c:" + sig)); }
+        }
       }
 
       if (pickable.length) {
@@ -3866,6 +3965,133 @@
       return box;
     }
 
+    // ── Ask the DS team (Mattermost): anyone can send issues that need a design system decision ──
+    // The webhook is in the team config; code.js hands it over only for the send. Mattermost doesn't allow CORS,
+    // so the post is no-cors (a form body, which Mattermost accepts as payload=…): it goes out, we can't read the answer.
+    function canEscalateCfg() { return !!state.escalation && state.escalation.enabled; }
+    function canEscalate() { return !isDev() && canEscalateCfg(); }
+    function escChannel() { return (state.escalation && state.escalation.channel) || t("escTeam"); }
+    function escTag(bodyEl, list) {
+      var sent = list.filter(function(it) { return !!it.escalated; });
+      if (!sent.length) { return; }
+      var e = sent[0].escalated;
+      var text = sent.length === list.length ? t("escSentTag").replace("{who}", e.by || "—").replace("{when}", formatWhen(e.at))
+               : t("escSentSome").replace("{n}", num(sent.length)).replace("{total}", num(list.length));
+      var el = addDiv(bodyEl, "item__esc", ""); el.appendChild(icoEl("send", "sm")); el.appendChild(document.createTextNode(" " + text));
+    }
+    function escButton(list, ek) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "item__resolve";
+      b.setAttribute("data-fk", "eb:" + ek);
+      b.appendChild(icoEl("send", "sm")); b.appendChild(document.createTextNode(" " + t("escBtn")));
+      b.addEventListener("click", function() { state.escKey = state.escKey === ek ? null : ek; state.refocus = state.escKey ? "en:" + ek : "eb:" + ek; renderList(); });
+      return b;
+    }
+    function escBox(list, ek) {
+      var box = document.createElement("div"); box.className = "rulebox escbox";
+      box.addEventListener("click", function(e) { e.stopPropagation(); });
+      var note = document.createElement("input"); note.type = "text"; note.className = "input rulebox__note"; note.maxLength = 500;
+      note.placeholder = t("escNotePh"); note.setAttribute("aria-label", t("escNotePh")); note.setAttribute("data-fk", "en:" + ek);
+      var hint = document.createElement("div"); hint.className = "hint"; hint.textContent = t("escHint").replace("{channel}", escChannel());
+      var st = document.createElement("div"); st.className = "status-inline"; st.setAttribute("role", "status"); st.setAttribute("aria-live", "polite");
+      var row = document.createElement("div"); row.className = "rulebox__row";
+      var send = document.createElement("button"); send.type = "button"; send.className = "btn btn--primary btn--small escbox__send";
+      send.appendChild(icoEl("send", "sm")); send.appendChild(document.createTextNode(" " + t("escSend")));
+      send.addEventListener("click", function() { sendEscalation(list, note.value.trim(), st, send); });
+      note.addEventListener("keydown", function(e) { if (e.key === "Enter") { send.click(); } });
+      var close = document.createElement("button"); close.type = "button"; close.className = "btn btn--ghost btn--small"; close.textContent = t("close");
+      close.addEventListener("click", function() { state.escKey = null; state.refocus = "eb:" + ek; renderList(); });
+      note.addEventListener("keydown", function(e) { if (e.key === "Escape") { close.click(); } });
+      row.appendChild(send); row.appendChild(close); row.appendChild(st);
+      box.appendChild(note); box.appendChild(hint); box.appendChild(row);
+      return box;
+    }
+    var escPending = {};   // req → { list, note, st, btn, bulk }
+    function sendEscalation(list, note, st, btn, bulk) {
+      var req = "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      escPending[req] = { list: list, note: note, st: st, btn: btn, bulk: !!bulk };
+      btn.disabled = true;
+      if (st) { st.textContent = t("escSending"); } else { showResultsStatus("success", t("escSending")); }
+      postToPlugin("ESCALATE_PREPARE", { req: req });
+    }
+    function doEscalateSend(msg) {
+      var p = escPending[msg.req]; if (!p) { return; }
+      var body = new URLSearchParams(); body.set("payload", JSON.stringify({ text: escMessage(p.list, p.note) }));
+      fetch(msg.url, { method: "POST", mode: "no-cors", body: body }).then(function() {
+        var kinds = {};   // issue codes only, for the usage statistics
+        p.list.forEach(function(it) { var m = REASON_META[reasonKey(it.reason)]; var c = m ? m.code : it.reason; kinds[c] = (kinds[c] || 0) + 1; });
+        postToPlugin("ESCALATE_SENT", { req: msg.req, ids: p.list.map(function(it) { return it.id; }), note: p.note, kinds: kinds });
+      }, function() { handleEscalateResult({ ok: false, code: "network", req: msg.req }); });
+    }
+    function handleEscalateResult(msg) {
+      var p = escPending[msg.req] || {}; delete escPending[msg.req];
+      if (p.bulk) { state.escBusy = false; }
+      if (!msg.ok) {
+        var ek = I18N.en["escErr_" + msg.code] ? "escErr_" + msg.code : "escErr_network";
+        if (p.st && p.st.isConnected) { p.st.textContent = t(ek); } else { showResultsStatus("error", t(ek)); }
+        if (p.btn) { p.btn.disabled = false; }
+        if (p.bulk) { updateBulkBar(); }
+        return;
+      }
+      (p.list || []).forEach(function(it) { it.escalated = msg.record; delete bulkSel()[it.id]; });
+      if (p.bulk) { dom.bulkNote.value = ""; }
+      state.escKey = null; renderList(); updateBulkBar();
+      showResultsStatus("success", t("escDone").replace("{channel}", escChannel()));
+    }
+    // Mattermost markdown; names can't break the layout or ping anyone (@channel).
+    function mdEsc(v) { return String(v == null ? "" : v).replace(/\s+/g, " ").trim().replace(/([\\`*_\[\]<>|#~])/g, "\\$1").replace(/@/g, "@\u200b"); }
+    function escMessage(list, note) {
+      var d = state.auditData || {};
+      var who = ((state.realUser || state.user) || {}).name || "—";
+      // One block per component + issue (a selection can mix several), most instances first.
+      var groups = [], byKey = {};
+      list.forEach(function(it) {
+        var k = reasonKey(it.reason) + "|" + (it.componentKey || it.componentName || it.mainComponentName || it.name) + "|" + (it.variantName || "") + "|" + (it.source || "");
+        if (!byKey[k]) { byKey[k] = []; groups.push(byKey[k]); }
+        byKey[k].push(it);
+      });
+      groups.sort(function(a, b) { return b.length - a.length; });
+      var count = function(n) { return n === 1 ? t("escMsgOne") : t("escMsgN").replace("{n}", num(n)); };
+      var L = ["#### :mag: " + t("escMsgTitle")];
+      if (groups.length === 1) {
+        L.push(t("escMsgAsk").replace("{who}", mdEsc(who)).replace("{count}", count(list.length)).replace("{comp}", "**" + mdEsc(escComp(groups[0][0])) + "**").replace("{reason}", mdEsc(escReason(groups[0][0]))), "");
+        if (d.fileKey) { L.push(escFileLine(d)); }
+        L = L.concat(escGroupLines(groups[0], d));
+      } else {
+        L.push(t("escMsgAskMany").replace("{who}", mdEsc(who)).replace("{count}", count(list.length)).replace("{k}", num(groups.length)), "");
+        if (d.fileKey) { L.push(escFileLine(d)); }
+        groups.slice(0, ESC_MAX_GROUPS).forEach(function(g) {
+          L.push("", "**" + mdEsc(escComp(g[0])) + "** · " + mdEsc(escReason(g[0])) + " · ×" + num(g.length));
+          L = L.concat(escGroupLines(g, d));
+        });
+        if (groups.length > ESC_MAX_GROUPS) { L.push("", t("escMsgMore").replace("{n}", num(groups.length - ESC_MAX_GROUPS))); }
+      }
+      if (note) { L.push("", "> " + t("escMsgNote") + ": " + mdEsc(note)); }
+      L.push("", "_" + t("escMsgFoot").replace("{v}", state.version || "").trim() + "_");
+      return L.join("\n");
+    }
+    var ESC_MAX_GROUPS = 12;   // keeps the post well under Mattermost's 16k limit
+    function escComp(it) { return it.componentName || it.mainComponentName || it.name || ""; }
+    function escReason(it) { var m = REASON_META[reasonKey(it.reason)]; return m ? m.code + " · " + t(m.labelKey) : ""; }
+    function escFileLine(d) { return "- " + t("escMsgFile") + ": [" + mdEsc(d.fileName || d.fileKey) + "](https://www.figma.com/design/" + d.fileKey + "/)"; }
+    function escGroupLines(list, d) {
+      var first = list[0], key = reasonKey(first.reason), L = [];
+      // One link per screen, to the first instance on it — the DS team lands on the layer itself.
+      var seen = {}, screens = [];
+      list.forEach(function(it) {
+        var fk = it.frameId || (it.parent && it.parent.id) || it.id;
+        if (seen[fk]) { return; } seen[fk] = 1;
+        var nm = mdEsc(it.frameName || (it.parent && it.parent.name) || escComp(it));
+        screens.push(d.fileKey ? "[" + nm + "](" + nodeLink(d.fileKey, it.id) + ")" : nm);
+      });
+      if (screens.length) { L.push("- " + t("escMsgScreens") + ": " + screens.slice(0, 5).join(" · ") + (screens.length > 5 ? " " + t("escMsgMore").replace("{n}", num(screens.length - 5)) : "")); }
+      if (first.variantName) { L.push("- " + t("escMsgVariant") + ": " + mdEsc(first.variantName)); }
+      if (key === "external_library" && first.source) { L.push("- " + t("escMsgLib") + ": " + mdEsc(first.source)); }
+      var ov = [];
+      list.forEach(function(it) { (it.overrides || []).forEach(function(o) { var sx = mdEsc(o.node) + " › " + mdEsc(fieldLabel(o.field)) + (o.value ? " " + mdEsc(o.value) : ""); if (ov.indexOf(sx) < 0) { ov.push(sx); } }); });
+      if (ov.length) { L.push("- " + t("escMsgOverrides") + ": " + ov.slice(0, 8).join(" · ") + (ov.length > 8 ? " " + t("escMsgMore").replace("{n}", num(ov.length - 8)) : "")); }
+      return L;
+    }
+
     function highlightAll(list) {
       postToPlugin("HIGHLIGHT_ALL", { nodeIds: list.map(function(it) { return it.id; }), instant: reducedMotion() });
     }
@@ -3921,6 +4147,7 @@
     var RESOLVABLE = { ds_overridden: true, unpublished: true, external_library: true, local_component: true, outdated: true, detached: true, missing_main: true };
 
     function canResolve(key) { return !isDev() && state.user && state.user.isReviewer && !!RESOLVABLE[key]; }
+    function canPick(item) { return canResolve(reasonKey(item.reason)) || (canEscalate() && !item.escalated); }
 
     function buildResolveActions(bodyEl, item, key) {
       var row = addDiv(bodyEl, "item__actions");
@@ -4101,15 +4328,58 @@
     }
 
     // The current audit as a sheet: every issue (open or accepted) and every passed instance.
+    // One row per audited frame — the sheet for the baseline / pilot comparison. Counts only, no layer names.
+    var SUM_REASONS = ["missing_main", "detached", "external_library", "outdated", "local_component", "unpublished", "ds_overridden"];
+    var SUM_MOD = ["color", "typography", "stroke", "spacing", "size", "style", "swap"];
+    function frameSummaries(d) {
+      var rows = {}, order = [];
+      (d.frames || []).forEach(function(f) {
+        rows[f.id] = { f: f, ok: 0, acc: 0, issues: 0, by: {}, mod: {}, wColor: 0, wText: 0 }; order.push(f.id);
+      });
+      var at = function(id) { return rows[id] || (rows[id] = { f: { id: id, name: "", state: "", instances: 0 }, ok: 0, acc: 0, issues: 0, by: {}, mod: {}, wColor: 0, wText: 0 }, order.push(id), rows[id]); };
+      d.invalidInstances.forEach(function(it) {
+        var r = at(it.frameId || d.frameId), k = reasonKey(it.reason);
+        r.issues++; r.by[k] = (r.by[k] || 0) + 1;
+        if (k === "ds_overridden") { var seen = {}; (it.overrides || []).forEach(function(o) { if (!seen[o.type]) { seen[o.type] = 1; r.mod[o.type] = (r.mod[o.type] || 0) + 1; } }); }
+      });
+      d.validInstances.forEach(function(v) { var r = at(v.frameId || d.frameId); if (v.resolved) { r.acc++; } else { r.ok++; } });
+      (d.warnings || []).forEach(function(w) {
+        var r = at(w.frameId || d.frameId);
+        if ((w.problems || []).some(function(p) { return p.type === "typography"; })) { r.wText++; } else { r.wColor++; }
+      });
+      return order.map(function(id) { return rows[id]; });
+    }
+    function exportSummaryCsv() {
+      var d = state.auditData;
+      if (!d) { return; }
+      var head = ["File", "File key", "Frame", "Frame link", "Audit date", "Plugin version", "Saved to file", "State", "Instances", "On system", "Accepted", "Issues", "Score %"]
+        .concat(SUM_REASONS.map(function(k) { return REASON_META[k].code; }))
+        .concat(SUM_MOD.map(function(k) { return "MOD " + k; }))
+        .concat(["Warnings colour", "Warnings text"]);
+      var lines = [head.join(",")];
+      frameSummaries(d).forEach(function(r) {
+        var total = r.ok + r.acc + r.issues;
+        var score = total ? Math.round((r.ok + r.acc) / total * 1000) / 10 : "";
+        lines.push([d.fileName || "", d.fileKey || "", r.f.name, nodeLink(d.fileKey, r.f.id), d.auditTimestamp || "", d.pluginVersion || "", d.noWrite ? "no" : "yes",
+          r.f.state || "", total, r.ok, r.acc, r.issues, score]
+          .concat(SUM_REASONS.map(function(k) { return r.by[k] || 0; }))
+          .concat(SUM_MOD.map(function(k) { return r.mod[k] || 0; }))
+          .concat([r.wColor, r.wText]).map(csvCell).join(","));
+      });
+      downloadCsv("darooghe-summary-" + csvFileStem(d.fileName || d.frameName), lines);
+      showResultsStatus("success", t("exportSummaryDone").replace("{n}", num(lines.length - 1)));
+    }
+
     function exportAuditCsv() {
       var d = state.auditData;
       if (!d) { return; }
-      var head = ["Status", "Issue", "Component", "Variant", "Layer", "Where", "Details", "Source", "Accepted by", "Note", "Link"];
+      var head = ["Status", "Issue", "Component", "Variant", "Layer", "Frame", "Where", "Details", "Source", "Accepted by", "Note", "Link", "Plugin version", "Audit date", "Saved to file"];
       var lines = [head.join(",")];
       var row = function(status, issue, item, extra) {
         lines.push([status, issue ? (REASON_CODE[issue.reason] || issue.reason) : "", (issue && issue.componentName) || item.componentName || item.dsName || "",
-          (issue && issue.variantName) || item.variantName || "", item.name, item.path || "", issue ? overridesText(issue.overrides) : "",
-          (issue && issue.source) || item.dsSource || "", extra.by || "", extra.note || "", nodeLink(d.fileKey, item.id)].map(csvCell).join(","));
+          (issue && issue.variantName) || item.variantName || "", item.name, item.frameName || "", item.path || "", issue ? overridesText(issue.overrides) : "",
+          (issue && issue.source) || item.dsSource || "", extra.by || "", extra.note || "", nodeLink(d.fileKey, item.id),
+          d.pluginVersion || "", d.auditTimestamp || "", d.noWrite ? "no" : "yes"].map(csvCell).join(","));
       };
       for (var i = 0; i < d.invalidInstances.length; i++) {
         var it = d.invalidInstances[i];
@@ -4145,7 +4415,24 @@
       showReportStatus("success", t("reportDone").replace("{n}", num(rows.length)).replace("{a}", num(active)).replace("{s}", num(rows.length - active)));
     }
 
-    
+        function mmMsg(text) { var el = document.getElementById("js-mm-status"); if (el) { el.textContent = text; } }
+    function renderMm() {
+      var form = document.getElementById("js-mm-form"); if (!form) { return; }
+      var on = canEscalateCfg(), ready = ghReady();
+      form.hidden = !ready;
+      document.getElementById("js-mm-remove").hidden = !on;
+      var ch = document.getElementById("js-mm-channel");
+      if (ch && !ch.value && on) { ch.value = state.escalation.channel || ""; }
+      mmMsg((on ? t("mmOn").replace("{channel}", escChannel()) : t("mmOff")) + (ready ? "" : " " + t("mmNeedGl")));
+    }
+    function handleMmResult(msg) {
+      var save = document.getElementById("js-mm-save"), rm = document.getElementById("js-mm-remove"), url = document.getElementById("js-mm-url");
+      if (save) { save.disabled = false; } if (rm) { rm.disabled = false; }
+      if (msg.ok) { if (url) { url.value = ""; } renderMm(); mmMsg(t(msg.removed ? "mmRemoved" : "mmSaved")); return; }
+      var ek = I18N.en["mmErr_" + msg.code] ? "mmErr_" + msg.code : I18N.en["ruleErr_" + msg.code] ? "ruleErr_" + msg.code : "ruleErr_gl_error";
+      mmMsg(t(ek));
+    }
+
     // Settings › Admin: the team rules currently in the gist (connected admins can remove them here).
     function renderRulesPanel() {
       var ul = document.getElementById("js-rules-list"), cnt = document.getElementById("js-rules-count");
@@ -4188,7 +4475,7 @@
               : g.state === "invalid" ? t("ghInvalid") : g.state === "error" ? t("ghError") : t("ghMissing");
       if (g.source) { txt += " " + t("cfgFrom_" + g.source); }   // where the team config came from (GitLab / gist while moving / saved copy)
       ghMsg(txt);
-      renderRulesPanel();
+      renderRulesPanel(); renderMm();
     }
     function handleTeamRuleResult(msg) {
       var ek = "ruleErr_" + msg.code;
@@ -4559,8 +4846,17 @@
         ra.appendChild(ruleButton([item], "r:" + item.id));
         if (state.rulingKey === "r:" + item.id) { bodyEl.appendChild(ruleBox([item], "r:" + item.id)); }
       }
+      if (!inCl) {
+        escTag(bodyEl, [item]);
+        if (canEscalate() && !item.escalated) {
+          var ea = bodyEl.querySelector(".item__actions") || addDiv(bodyEl, "item__actions");
+          ea.addEventListener("click", function(e) { e.stopPropagation(); });
+          ea.appendChild(escButton([item], "i:" + item.id));
+          if (state.escKey === "i:" + item.id) { bodyEl.appendChild(escBox([item], "i:" + item.id)); }
+        }
+      }
 
-      if (canResolve(key)) { el.appendChild(pickBox(item, compName)); }
+      if (canPick(item)) { el.appendChild(pickBox(item, compName)); }
       el.appendChild(bodyEl); el.appendChild(gotoButton(item));
       el.addEventListener("click", function() { focusCanvas(item.id); });
       return el;
@@ -4590,7 +4886,23 @@
       dom.bulkBar.hidden = !n || state.activeTab !== "invalid";
       dom.bulkCount.textContent = n ? t("bulkSelected").replace("{n}", num(n)) : "";
       dom.bulkAccept.disabled = !!state.bulkBusy;
+      // Reviewers accept; everyone can send to the DS team (when set up). The note serves both.
+      var rev = !isDev() && !!state.user && !!state.user.isReviewer, esc = canEscalate();
+      dom.bulkAccept.hidden = !rev;
+      dom.bulkEscalate.hidden = !esc;
+      dom.bulkEscalate.className = "btn btn--small bulkbar__go " + (rev ? "btn--ghost" : "btn--primary");
+      dom.bulkEscalate.disabled = !!state.bulkBusy || !!state.escBusy;
+      var ph = rev && esc ? "bulkNotePh" : rev ? "resolveNotePh" : "escNotePh";
+      dom.bulkNote.setAttribute("data-i18n-ph", ph); dom.bulkNote.setAttribute("data-i18n-label", ph);
+      dom.bulkNote.placeholder = t(ph); dom.bulkNote.setAttribute("aria-label", t(ph));
     }
+    dom.bulkEscalate.addEventListener("click", function() {
+      var sel = bulkSel(), list = [];
+      ((state.auditData && state.auditData.invalidInstances) || []).forEach(function(it) { if (sel[it.id] && !it.escalated) { list.push(it); } });
+      if (!list.length) { showResultsStatus("success", t("escAllSent")); return; }
+      state.escBusy = true; updateBulkBar();
+      sendEscalation(list, dom.bulkNote.value.trim(), null, dom.bulkEscalate, true);
+    });
 
     dom.bulkClear.addEventListener("click", function() { state.bulkSel = {}; renderList(); updateBulkBar(); });
     dom.bulkAccept.addEventListener("click", function() {

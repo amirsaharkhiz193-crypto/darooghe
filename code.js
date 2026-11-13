@@ -2,7 +2,7 @@
 
 var VERSION = {
   major : 2,
-  minor : 13,
+  minor : 14,
   patch : 0,
   label : "",
 };
@@ -20,6 +20,7 @@ var DEFAULT_DS_NAME = null;
 var CONFIG_SRC      = null;
 var GUIDELINES_URL  = null;
 var LLM_URL         = "";
+var TELEMETRY       = null;
 var API_BASE    = "https://api.figma.com/v1";
 var LLM_API_KEY = ""; // Set by user in settings
 
@@ -179,6 +180,10 @@ figma.ui.onmessage = function(msg) {
   if (msg.type === "RESOLVE_ISSUES")   { handleResolveIssues(msg);  }
   if (msg.type === "EXPORT_RESOLUTIONS") { handleExportResolutions(); }
   if (msg.type === "CANCEL_AUDIT")       { handleCancelAudit(); }
+  if (msg.type === "SET_NO_WRITE")       { setNoWrite(msg.on, true); }
+  if (msg.type === "SET_TELEMETRY")      { setTelemetryOff(!msg.on, true); }
+  if (msg.type === "ESCALATE_PREPARE")   { handleEscalatePrepare(msg); }
+  if (msg.type === "ESCALATE_SENT")      { handleEscalateSent(msg); }
     if (msg.type === "UNRESOLVE_ISSUE")  { handleUnresolveIssue(msg); }
   if (msg.type === "RESIZE_FRAME")     { handleResizeFrame(msg);    }
   if (msg.type === "CLOSE")            { figma.closePlugin();        }
@@ -201,6 +206,12 @@ function handleInit() {
     send("GUIDELINES_LOADED", { guidelines: guidelines });
     setReviewers(guidelines);
     setTeamRules(guidelines);
+    setEscalation(guidelines);
+    loadNoWrite();
+    loadTelemetry().then(function() {
+      track("open", { editor: figma.editorType, role: isAdmin() ? "admin" : isReviewer() ? "reviewer" : "designer", cfg: configSource });
+      scheduleTmFlush(TM_START_MS);   // whatever waited from earlier (e.g. audits outside the company network)
+    });
         setSharedToken(guidelines);
     sendTokenStatus();
     if (EDITION === "public") {
@@ -212,6 +223,9 @@ function handleInit() {
     send("GUIDELINES_LOADED", { guidelines: null });
     setReviewers(null);
     setTeamRules(null);
+    setEscalation(null);
+    loadNoWrite();
+    loadTelemetry();
     setSharedToken(null);
     sendTokenStatus();
     if (EDITION === "public") {
@@ -281,21 +295,15 @@ function fetchGuidelines() {
   };
   // Cache-buster: GitHub's raw CDN (and Figma) can serve an old copy for minutes after a gist edit.
   var fromGist = function() { return GUIDELINES_URL ? fetchJson(GUIDELINES_URL + "?t=" + Date.now()) : Promise.reject(new Error("no gist")); };
-  var src = "gitlab";
-  return fromGitlab()
-    .catch(function() { src = "gist"; return fromGist(); })
-    .then(function(data) {
-      configSource = src;
-      figma.clientStorage.setAsync("cached_guidelines", data).catch(function() {});
-      return data;
-    })
-    .catch(function() {
-      // Offline (e.g. outside the company network): the last copy that was read on this computer.
-      configSource = "cache";
-      return figma.clientStorage.getAsync("cached_guidelines").then(function(cached) {
-        return cached || null;
-      });
+  // GitLab first; outside the company network the copy saved here (it has the latest rules and settings),
+  // and only when there is none yet the old gist — which must never overwrite a copy read from GitLab.
+  var save = function(data) { figma.clientStorage.setAsync("cached_guidelines", data).catch(function() {}); return data; };
+  return fromGitlab().then(function(data) { configSource = "gitlab"; return save(data); }, function() {
+    return figma.clientStorage.getAsync("cached_guidelines").catch(function() { return null; }).then(function(cached) {
+      if (cached) { configSource = "cache"; return cached; }
+      return fromGist().then(function(data) { configSource = "gist"; return save(data); }, function() { configSource = "cache"; return null; });
     });
+  });
 }
 var configSource = null;   // "gitlab" | "gist" | "cache" — where the current config came from
 
@@ -534,13 +542,14 @@ function runPool(items, limit, worker, onProgress) {
 // older run stops where it is — no result, no verification or history written.
 var auditRun = 0;
 function handleCancelAudit() {
+  track("cancel", {});
   auditRun++;
   mainMemo = null;
   send("AUDIT_CANCELLED", {});
 }
 
 function handleRunAudit(msg) {
-  var myRun = ++auditRun;
+  var myRun = ++auditRun, t0 = Date.now();
   var cancelled = function() { return myRun !== auditRun; };
   sendStatus("Fetching Design System components...", "st_fetch");
 
@@ -694,6 +703,8 @@ function handleRunAudit(msg) {
       }
 
       function finishIssue(instance, issue, sourceName) {
+        var esc = readEscalation(instance);
+        if (esc) { issue.escalated = esc; }             // already sent to the DS team
         // A team rule (gist) accepts this exact pattern everywhere — no per-instance exception needed.
         var rule = matchTeamRule(issue);
         if (rule) { valid.push(buildRuleItem(instance, issue, rule, sourceName)); return Promise.resolve(); }
@@ -779,8 +790,10 @@ function handleRunAudit(msg) {
         for (var lk = 0; lk < activeLibs.length; lk++) { libKeys.push(activeLibs[lk].key); }
 
         var sendResult = function(frameStates) {
+          trackAudit(t0, valid, invalid, rawWarnings, frameStates, notes);
           send("AUDIT_RESULT", {
             pluginVersion    : VERSION.string,
+            noWrite          : noWrite,       // measured without writing to the file
             frameId          : msg.frameId || (msg.frameIds && msg.frameIds[0]),
             frameName        : auditName,
             totalInstances   : allInstances.length + allDetached.length,
@@ -1690,6 +1703,95 @@ function readVerification(node) {
   } catch(e) { return null; }
 }
 
+// ── Audit without writing (measuring old files, e.g. the baseline) ──
+// While on, audits and the automatic history write nothing to the file: no verification, history, snapshots or
+// record upgrades. Deliberate actions (accept an exception, Mark ready) still work. Saved per computer.
+// Admins only (team build): a designer who forgot it on would lose their verification stamps. Not in the public build.
+var noWrite = false;
+var NO_WRITE_KEY = "no_write";
+function canNoWrite() { return EDITION !== "public" && isAdmin(); }
+function setNoWrite(on, persist) {
+  noWrite = !!on && canNoWrite();
+  if (persist) { figma.clientStorage.setAsync(NO_WRITE_KEY, noWrite).catch(function() {}); }
+  send("NO_WRITE", { on: noWrite });
+}
+// ── Usage statistics (team build) ────────────────────────────
+// So the DS team can see adoption and compliance over time. Counts and codes only — no layer, frame or file
+// names, no text, no images; the user and the file are hashed. Events queue on this computer (TM_QUEUE_KEY,
+// max TM_MAX) and go to GitLab in batches when it is reachable (company network / VPN); outside it they wait.
+// Nothing happens in the public build (TELEMETRY = null) or when switched off in Settings › Team.
+var TM_QUEUE_KEY = "tm_queue", TM_OFF_KEY = "tm_off", TM_MAX = 1000, TM_BATCH = 200, TM_FLUSH_MS = 20000, TM_START_MS = 5000;
+var tmOff = false, tmFlushing = false, tmTimer = null, tmChain = Promise.resolve();
+function tmOn() { return !!TELEMETRY && !tmOff; }
+function tmHash(str) { return str ? fpHash("darooghe/" + str).slice(0, 12) : null; }
+function tmQueue(edit) {   // read → change → write, one at a time
+  tmChain = tmChain.then(function() {
+    return figma.clientStorage.getAsync(TM_QUEUE_KEY).then(function(q) {
+      var next = edit(q || []);
+      if (next.length > TM_MAX) { next = next.slice(next.length - TM_MAX); }
+      return figma.clientStorage.setAsync(TM_QUEUE_KEY, next);
+    });
+  }).catch(function() {});
+  return tmChain;
+}
+function track(event, data) {
+  if (!tmOn()) { return; }
+  var ev = { e: event, ts: new Date().toISOString(), v: VERSION.string, u: tmHash(me().id), f: tmHash(currentFileKey()) };
+  for (var k in (data || {})) { ev[k] = data[k]; }
+  tmQueue(function(q) { return q.concat([ev]); });
+  scheduleTmFlush(TM_FLUSH_MS);
+}
+function scheduleTmFlush(ms) {
+  if (tmTimer) { clearTimeout(tmTimer); }
+  tmTimer = setTimeout(function() { tmTimer = null; flushTelemetry(); }, ms);
+}
+function setTelemetryOff(off, persist) {
+  tmOff = !!off;
+  if (persist) { figma.clientStorage.setAsync(TM_OFF_KEY, tmOff).catch(function() {}); }
+  if (tmOff) { tmQueue(function() { return []; }); }   // off = nothing more leaves this computer
+  send("TELEMETRY_INFO", { available: !!TELEMETRY, on: tmOn() });
+}
+function loadTelemetry() {
+  return figma.clientStorage.getAsync(TM_OFF_KEY).then(function(v) { setTelemetryOff(!!v, false); }, function() {});
+}
+function flushTelemetry() {
+  if (!tmOn() || tmFlushing) { return Promise.resolve(); }
+    return Promise.resolve();
+}
+// One audit, as numbers: what was checked, how it went, and which components cause the issues.
+function trackAudit(t0, valid, invalid, warnings, frameStates, notes) {
+  if (!tmOn()) { return; }
+  var code = { missing_main: "MIS", detached: "DET", external_library: "EXT", outdated: "OLD", local_component: "LOC", unpublished: "UNP", ds_overridden: "MOD" };
+  var r = {}, mod = {}, w = {}, comps = {}, acc = 0, rule = 0, ver = 0, fail = 0, empty = 0;
+  invalid.forEach(function(it) {
+    var c = code[it.reason] || it.reason;
+    r[c] = (r[c] || 0) + 1;
+    (it.overrides || []).forEach(function(o) { mod[o.type] = (mod[o.type] || 0) + 1; });
+    var ck = c + "|" + (it.componentName || it.mainComponentName || "");
+    comps[ck] = (comps[ck] || 0) + 1;
+  });
+  valid.forEach(function(it) { if (it.resolved) { if (it.resolved.rule) { rule++; } else { acc++; } } });
+  (warnings || []).forEach(function(x) { (x.problems || []).forEach(function(pb) { w[pb.type] = (w[pb.type] || 0) + 1; }); });
+  var top = Object.keys(comps).sort(function(a, b) { return comps[b] - comps[a]; }).slice(0, 30).map(function(k) {
+    var i = k.indexOf("|"); return { k: k.slice(0, i), c: k.slice(i + 1), n: comps[k] };
+  });
+  var fk = currentFileKey(), frames = [];
+  (frameStates || []).forEach(function(f) {
+    if (f.state === "verified") { ver++; } else if (f.state === "empty") { empty++; } else { fail++; }
+    if (frames.length < 50) { frames.push({ h: tmHash(fk + ":" + f.id), st: f.state, n: f.instances, i: f.issues }); }
+  });
+  var total = valid.length + invalid.length;
+  track("audit", {
+    ms: Date.now() - t0, nf: (frameStates || []).length, n: total, ok: valid.length - acc - rule, acc: acc, rule: rule, iss: invalid.length,
+    score: total ? Math.round(100 * valid.length / total) : null, r: r, mod: mod, w: w, ver: ver, fail: fail, empty: empty,
+    nw: noWrite, notes: (notes || []).map(function(x) { return x.code; }), comps: top, fr: frames,
+  });
+}
+
+function loadNoWrite() {   // after setReviewers(): admins are known only then
+  figma.clientStorage.getAsync(NO_WRITE_KEY).then(function(v) { setNoWrite(!!v, false); }).catch(function() {});
+}
+
 function writeVerification(frame, info) {
   return computeFingerprint(frame).then(function(fp) {
     var who = null;
@@ -1705,12 +1807,13 @@ function writeVerification(frame, info) {
       instances     : info.instances,
       resolved      : info.resolved || 0,
     };
-    frame.setSharedPluginData(VERIFY_NS, VERIFY_KEY, JSON.stringify(rec));
+    if (!noWrite) { frame.setSharedPluginData(VERIFY_NS, VERIFY_KEY, JSON.stringify(rec)); }
     return rec;
   });
 }
 
 function clearVerification(frame) {
+  if (noWrite) { return; }
   try { frame.setSharedPluginData(VERIFY_NS, VERIFY_KEY, ""); } catch(e) {}
 }
 
@@ -1809,7 +1912,7 @@ function readLog(node) {
 }
 
 function writeLog(node, log) {
-  if (isDevMode()) { return; }
+  if (isDevMode() || noWrite) { return; }
   try {
     if (log.length > LOG_MAX) { log = log.slice(log.length - LOG_MAX); }
     node.setSharedPluginData(VERIFY_NS, LOG_KEY, JSON.stringify(log));
@@ -1833,7 +1936,7 @@ function readSnap(node) {
   try { var raw = node.getSharedPluginData(VERIFY_NS, SNAP_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
 }
 function writeSnap(node, snap) {
-  if (isDevMode() || !snap) { return; }
+  if (isDevMode() || noWrite || !snap) { return; }
   try { node.setSharedPluginData(VERIFY_NS, SNAP_KEY, JSON.stringify(snap)); } catch(e) {}
 }
 
@@ -2178,6 +2281,7 @@ function handleMarkReadyForDev(msg) {
       if (st.state !== "verified") { throw new Error("This frame is not verified, or it changed since verification. Re-audit it first."); }
       if (!st.canMarkReady) { throw new Error("Only frames placed directly on a page or section can be marked ready for dev."); }
       node.devStatus = { type: "READY_FOR_DEV", description: "Verified by DAROOGHE v" + VERSION.string };
+      track("ready", {});
       send("READY_FOR_DEV_RESULT", { success: true, frameName: node.name });
       scheduleVerifyCheck(0);
     });
@@ -2307,7 +2411,7 @@ function resolutionMatches(instance, rec, overrides) {
   var legacy = !(rec.v >= 2);
   return issueSignature(instance, rec.reason, overrides, legacy).then(function(sig) {
     if (sig !== rec.sig) { return false; }
-    if (!isDevMode()) {
+    if (!isDevMode() && !noWrite) {
       issueSignatureV3(instance, rec.reason, overrides).then(function(s3) {
         rec.v = 3; rec.sig = s3;
         try { instance.setSharedPluginData(VERIFY_NS, RESOLVE_KEY, JSON.stringify(rec)); } catch(e) {}
@@ -2375,6 +2479,36 @@ function buildRuleItem(instance, issue, rule, sourceName) {
 }
 
 
+// ── Escalation to the DS team (Mattermost) ──
+// A designer sends issues to the DS team's channel when they need a decision. The incoming-webhook URL is in the
+// team config (never in the code). The UI posts the message itself (no-cors: the webhook needn't allow CORS);
+// after it went out, each instance is marked so the result shows "sent to the DS team".
+var ESC_KEY = "escalation";
+var escalationCfg = null;   // { url, channel }
+function setEscalation(guidelines) {
+  var m = guidelines && guidelines.mattermost, url = "";
+  if (m) { url = m.webhook ? String(m.webhook) : (m.webhookB64 ? b64decode(m.webhookB64) : ""); }
+  url = url.replace(/^\s+|\s+$/g, "");
+  escalationCfg = /^https:\/\//.test(url) ? { url: url, channel: m.channel ? String(m.channel) : "" } : null;
+  send("ESCALATION_INFO", { enabled: !!escalationCfg, channel: escalationCfg ? escalationCfg.channel : "" });
+}
+function readEscalation(node) {
+  try { var raw = node.getSharedPluginData(VERIFY_NS, ESC_KEY); return raw ? JSON.parse(raw) : null; } catch(e) { return null; }
+}
+function handleEscalatePrepare(msg) {
+  if (!escalationCfg) { send("ESCALATE_RESULT", { ok: false, code: "not_configured", req: msg.req }); return; }
+  send("ESCALATE_SEND", { url: escalationCfg.url, req: msg.req });
+}
+function handleEscalateSent(msg) {
+  var ids = msg.ids || [], who = me(), rec = JSON.stringify({ at: new Date().toISOString(), by: who.name, uid: who.id, note: String(msg.note || "").slice(0, 500) });
+  Promise.all((noWrite ? [] : ids).map(function(id) {   // baseline mode: the message went out, the file stays untouched
+    return getNodeSafely(id).then(function(n) { if (n) { try { n.setSharedPluginData(VERIFY_NS, ESC_KEY, rec); } catch(e) {} } }, function() {});
+  })).then(function() {
+    track("esc", { n: ids.length, k: msg.kinds || null, note: !!msg.note });
+    send("ESCALATE_RESULT", { ok: true, n: ids.length, req: msg.req, record: JSON.parse(rec) });
+  });
+}
+
 function checkResolution(instance, issue) {
   var rec = readResolution(instance);
   if (!rec) { return Promise.resolve({ state: "none" }); }
@@ -2429,7 +2563,10 @@ function resolveOne(msg) {
 }
 
 function handleResolveIssue(msg) {
-  resolveOne(msg).then(function(res) { send("RESOLVE_RESULT", res); });
+  resolveOne(msg).then(function(res) {
+    if (res.success) { track("accept", { r: msg.reason || null, n: 1, note: !!msg.note }); }
+    send("RESOLVE_RESULT", res);
+  });
 }
 
 // Bulk: { items: [{ nodeId, reason }], note } — one after another, a RESOLVE_RESULT (bulk: true) per item,
@@ -2447,7 +2584,10 @@ function handleResolveIssues(msg) {
       });
     });
   });
-  chain.then(function() { send("RESOLVE_BULK_DONE", { ok: ok, failed: failed }); });
+  chain.then(function() {
+    if (ok) { track("accept", { r: null, n: ok, note: !!msg.note, bulk: true }); }
+    send("RESOLVE_BULK_DONE", { ok: ok, failed: failed });
+  });
 }
 
 function handleUnresolveIssue(msg) {

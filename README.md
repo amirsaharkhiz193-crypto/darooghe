@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.13.0** · [Figma Community](#) · Free
+**Version 2.14.0** · [Figma Community](#) · Free
 
 ---
 
@@ -45,7 +45,7 @@ Re-register a library after you publish changes to it. Registered libraries are 
 
 Values from variables or styles are fine, and so are overrides on hidden layers. Text content and layout-driven size changes are ignored. Sections are audited with everything inside them.
 
-**Export CSV** saves the whole audit (issues, accepted exceptions and passed instances, with Figma links).
+**Details CSV** saves the whole audit (issues, accepted exceptions and passed instances, with Figma links). **Summary CSV** saves one row per frame (score, issues by type, overrides by kind, warnings, plugin version, date), handy for tracking compliance over time.
 
 **Warnings (`RAW`)** — layers outside components with a raw colour or text without a text style appear in a Warnings tab. They don't block verification. Hand-drawn vectors inside a group (badges, illustrations) aren't checked, and in a section, frames without components (labels, notes) are skipped.
 
