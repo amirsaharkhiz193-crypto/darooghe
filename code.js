@@ -2,8 +2,8 @@
 
 var VERSION = {
   major : 2,
-  minor : 14,
-  patch : 1,
+  minor : 15,
+  patch : 0,
   label : "",
 };
 
@@ -182,6 +182,9 @@ figma.ui.onmessage = function(msg) {
   if (msg.type === "CANCEL_AUDIT")       { handleCancelAudit(); }
   if (msg.type === "SET_NO_WRITE")       { setNoWrite(msg.on, true); }
   if (msg.type === "SET_TELEMETRY")      { setTelemetryOff(!msg.on, true); }
+  if (msg.type === "REPORT_WRONG")       { handleReportWrong(msg); }
+  if (msg.type === "TM_LOG_GET")         { handleTmLog(); }
+  if (msg.type === "TM_FLUSH_NOW")       { flushTelemetry().then(handleTmLog); }
   if (msg.type === "ESCALATE_PREPARE")   { handleEscalatePrepare(msg); }
   if (msg.type === "ESCALATE_SENT")      { handleEscalateSent(msg); }
     if (msg.type === "UNRESOLVE_ISSUE")  { handleUnresolveIssue(msg); }
@@ -210,6 +213,7 @@ function handleInit() {
     loadNoWrite();
     loadTelemetry().then(function() {
       track("open", { editor: figma.editorType, role: isAdmin() ? "admin" : isReviewer() ? "reviewer" : "designer", cfg: configSource });
+      trackCoverage();
       scheduleTmFlush(TM_START_MS);   // whatever waited from earlier (e.g. audits outside the company network)
     });
         setSharedToken(guidelines);
@@ -629,6 +633,7 @@ function handleRunAudit(msg) {
       var rawWarnings  = [];   // layers outside components with raw (untokenised) styles — warnings, not issues
       var frameInstanceCounts = [];
       var instanceFrameIndex = {};
+      rawSeen = 0; rawHit = 0;
       var skippedEmpty = 0;    // several targets: frames without components are labels / notes, not screens
       for (var ff = 0; ff < finalFrames.length; ff++) {
         var frameList = [], frameDetached = [];
@@ -1300,13 +1305,18 @@ function isArchivedLibrary(name) { return !!name && ARCHIVED_LIB_RE.test(name); 
 // Shapes drawn by hand inside a group (badges, illustrations): artwork, not UI — no raw-colour warnings.
 var VECTOR_ART = { VECTOR: true, BOOLEAN_OPERATION: true, STAR: true, POLYGON: true, LINE: true, ELLIPSE: true };
 
+// Layers checked for raw values / layers with one (usage statistics: the real share of tokens), counted past RAW_MAX.
+var rawSeen = 0, rawHit = 0, RAW_COUNT_MAX = 20000;
 function collectRaw(node, out, inGroup) {
-  if (!node || node.visible === false || out.length >= RAW_MAX) { return; }
+  if (!node || node.visible === false) { return; }
+  if (out.length >= RAW_MAX && rawSeen >= RAW_COUNT_MAX) { return; }   // enough warnings and enough counted
   if (node.type === "INSTANCE") { return; }                    // components are checked by the audit itself
   if (inGroup && VECTOR_ART[node.type]) { return; }
   if (node.type !== "GROUP" && node.type !== "SECTION" && node.type !== "SLICE") {
     var probs = rawProblems(node);
-    if (probs.length) {
+    rawSeen++;
+    if (probs.length) { rawHit++; }
+    if (probs.length && out.length < RAW_MAX) {
       out.push({ id: node.id, name: node.name, nodeType: node.type, problems: probs, path: getNodePath(node), parent: getDirectParent(node) });
     }
   }
@@ -1722,6 +1732,10 @@ function setNoWrite(on, persist) {
 // Nothing happens in the public build (TELEMETRY = null) or when switched off in Settings › Team.
 var TM_QUEUE_KEY = "tm_queue", TM_OFF_KEY = "tm_off", TM_MAX = 1000, TM_BATCH = 200, TM_FLUSH_MS = 20000, TM_START_MS = 5000;
 var tmOff = false, tmFlushing = false, tmTimer = null, tmChain = Promise.resolve();
+var TM_SID = Math.random().toString(36).slice(2, 10);   // one plugin run: groups the events of a session
+// Admins can see the last events and the last upload in Settings › Admin (checking that tracking works).
+var TM_RECENT_MAX = 25, tmRecent = [], tmLastUpload = null;   // { at, status, n }
+var tmHcSeen = {};   // handoff changes already reported in this run (frame + fingerprint)
 function tmOn() { return !!TELEMETRY && !tmOff; }
 function tmHash(str) { return str ? fpHash("darooghe/" + str).slice(0, 12) : null; }
 function tmQueue(edit) {   // read → change → write, one at a time
@@ -1736,8 +1750,10 @@ function tmQueue(edit) {   // read → change → write, one at a time
 }
 function track(event, data) {
   if (!tmOn()) { return; }
-  var ev = { e: event, ts: new Date().toISOString(), v: VERSION.string, u: tmHash(me().id), f: tmHash(currentFileKey()) };
+  var ev = { e: event, ts: new Date().toISOString(), v: VERSION.string, u: tmHash(me().id), f: tmHash(currentFileKey()), sid: TM_SID };
   for (var k in (data || {})) { ev[k] = data[k]; }
+  tmRecent.push({ e: event, ts: ev.ts, keys: Object.keys(ev).filter(function(x) { return ev[x] !== null && ev[x] !== undefined; }), sent: false });
+  if (tmRecent.length > TM_RECENT_MAX) { tmRecent = tmRecent.slice(-TM_RECENT_MAX); }
   tmQueue(function(q) { return q.concat([ev]); });
   scheduleTmFlush(TM_FLUSH_MS);
 }
@@ -1751,12 +1767,48 @@ function setTelemetryOff(off, persist) {
   if (tmOff) { tmQueue(function() { return []; }); }   // off = nothing more leaves this computer
   send("TELEMETRY_INFO", { available: !!TELEMETRY, on: tmOn() });
 }
+function handleTmLog() {
+  if (!isAdmin()) { return; }
+  tmChain.then(function() { return figma.clientStorage.getAsync(TM_QUEUE_KEY); }).then(function(q) {
+    send("TM_LOG", { on: tmOn(), items: tmRecent.slice().reverse(), queued: (q || []).length, last: tmLastUpload, hasToken: !!(TELEMETRY && TELEMETRY.tokenB64) });
+  }, function() {});
+}
 function loadTelemetry() {
   return figma.clientStorage.getAsync(TM_OFF_KEY).then(function(v) { setTelemetryOff(!!v, false); }, function() {});
 }
 function flushTelemetry() {
   if (!tmOn() || tmFlushing) { return Promise.resolve(); }
     return Promise.resolve();
+}
+// The audited frame a node belongs to, hashed like the audit's frames (fr[].h) so events can be joined.
+function tmFrame(node) { var top = node ? (topFrameOf(node) || node) : null; return top ? tmHash(currentFileKey() + ":" + top.id) : null; }
+function tmFramesOf(ids) {
+  return Promise.all((ids || []).slice(0, 50).map(function(id) { return getNodeSafely(id).then(tmFrame, function() { return null; }); })).then(function(hs) {
+    var out = [];
+    hs.forEach(function(h) { if (h && out.indexOf(h) < 0) { out.push(h); } });
+    return out;
+  });
+}
+// «This issue is wrong»: how precise the checker is (issue code, component, which kinds of override).
+function handleReportWrong(msg) {
+  var code = { missing_main: "MIS", detached: "DET", external_library: "EXT", outdated: "OLD", local_component: "LOC", unpublished: "UNP", ds_overridden: "MOD" };
+  tmFramesOf([msg.nodeId]).then(function(fh) {
+    track("wrong", { r: code[msg.reason] || msg.reason || null, c: String(msg.component || "").slice(0, 80), ov: (msg.fields || []).slice(0, 10), fh: fh });
+    send("WRONG_RESULT", { nodeId: msg.nodeId, ok: tmOn() });
+  });
+}
+// Ready-for-dev frames on the page and how many carry a Darooghe stamp — how much of the handoff is checked.
+function trackCoverage() {
+  if (!tmOn() || isDevMode()) { return; }
+  var ready = 0, stamped = 0, frames = 0;
+  var look = function(n) {
+    if (n.type === "SECTION") { (n.children || []).forEach(look); return; }
+    if (!isAuditTarget(n)) { return; }
+    frames++;
+    if (readDevStatus(n) === "READY_FOR_DEV") { ready++; if (readVerification(n)) { stamped++; } }
+  };
+  try { (figma.currentPage.children || []).forEach(look); } catch(e) { return; }
+  if (ready) { track("cover", { pg: tmHash(currentFileKey() + ":" + figma.currentPage.id), frames: frames, ready: ready, stamped: stamped }); }
 }
 // One audit, as numbers: what was checked, how it went, and which components cause the issues.
 function trackAudit(t0, valid, invalid, warnings, frameStates, notes) {
@@ -1775,16 +1827,20 @@ function trackAudit(t0, valid, invalid, warnings, frameStates, notes) {
   var top = Object.keys(comps).sort(function(a, b) { return comps[b] - comps[a]; }).slice(0, 30).map(function(k) {
     var i = k.indexOf("|"); return { k: k.slice(0, i), c: k.slice(i + 1), n: comps[k] };
   });
-  var fk = currentFileKey(), frames = [];
+  var fk = currentFileKey(), frames = [], byFrame = {}, used = {};
+  invalid.forEach(function(it) { if (!it.frameId) { return; } var o = byFrame[it.frameId] || (byFrame[it.frameId] = {}), c = code[it.reason] || it.reason; o[c] = (o[c] || 0) + 1; });
+  valid.forEach(function(it) { if (it.resolved) { return; } var nm = it.dsName || it.componentName || ""; if (nm) { used[nm] = (used[nm] || 0) + 1; } });
   (frameStates || []).forEach(function(f) {
     if (f.state === "verified") { ver++; } else if (f.state === "empty") { empty++; } else { fail++; }
-    if (frames.length < 50) { frames.push({ h: tmHash(fk + ":" + f.id), st: f.state, n: f.instances, i: f.issues }); }
+    if (frames.length < 50) { frames.push({ h: tmHash(fk + ":" + f.id), st: f.state, n: f.instances, i: f.issues, r: byFrame[f.id] || {} }); }
   });
+  var usedTop = Object.keys(used).sort(function(a, b) { return used[b] - used[a]; }).slice(0, 30).map(function(k) { return { c: k, n: used[k] }; });
   var total = valid.length + invalid.length;
   track("audit", {
     ms: Date.now() - t0, nf: (frameStates || []).length, n: total, ok: valid.length - acc - rule, acc: acc, rule: rule, iss: invalid.length,
     score: total ? Math.round(100 * valid.length / total) : null, r: r, mod: mod, w: w, ver: ver, fail: fail, empty: empty,
-    nw: noWrite, notes: (notes || []).map(function(x) { return x.code; }), comps: top, fr: frames,
+    nw: noWrite, notes: (notes || []).map(function(x) { return x.code; }), comps: top, used: usedTop, fr: frames,
+    ly: rawSeen, lr: rawHit, lyc: rawSeen >= RAW_COUNT_MAX || undefined,   // layers outside components checked / with a raw value (lyc: count capped)
   });
 }
 
@@ -2036,6 +2092,14 @@ function appendChange(node, entry) {
     last.d = mergeDiff(last.d, entry.d);
   } else {
     log.push(entry);
+    var hcKey = node.id + "|" + (entry.fp || entry.at);
+    if (!noWrite && !tmHcSeen[hcKey] && readDevStatus(node) === "READY_FOR_DEV") {   // changed after handoff: rework once development started
+      tmHcSeen[hcKey] = true;
+      var rec = readVerification(node), kinds = [];
+      (entry.d || []).forEach(function(x) { if (x && x.t && kinds.indexOf(x.t) < 0) { kinds.push(x.t); } });
+      // fp: the same change seen by several people (or Dev Mode viewers) counts once in the analysis
+      track("handoff_change", { fh: tmFrame(node), fp: entry.fp ? String(entry.fp).slice(0, 12) : null, src: entry.src || null, d: kinds, hv: rec && rec.at ? Math.round((Date.parse(entry.at) - Date.parse(rec.at)) / 36e5) : null });
+    }
   }
   writeLog(node, log);
   return entry;
@@ -2281,7 +2345,7 @@ function handleMarkReadyForDev(msg) {
       if (st.state !== "verified") { throw new Error("This frame is not verified, or it changed since verification. Re-audit it first."); }
       if (!st.canMarkReady) { throw new Error("Only frames placed directly on a page or section can be marked ready for dev."); }
       node.devStatus = { type: "READY_FOR_DEV", description: "Verified by DAROOGHE v" + VERSION.string };
-      track("ready", {});
+      track("ready", { fh: tmFrame(node) });
       send("READY_FOR_DEV_RESULT", { success: true, frameName: node.name });
       scheduleVerifyCheck(0);
     });
@@ -2504,7 +2568,7 @@ function handleEscalateSent(msg) {
   Promise.all((noWrite ? [] : ids).map(function(id) {   // baseline mode: the message went out, the file stays untouched
     return getNodeSafely(id).then(function(n) { if (n) { try { n.setSharedPluginData(VERIFY_NS, ESC_KEY, rec); } catch(e) {} } }, function() {});
   })).then(function() {
-    track("esc", { n: ids.length, k: msg.kinds || null, note: !!msg.note });
+    tmFramesOf(ids).then(function(fh) { track("esc", { n: ids.length, k: msg.kinds || null, note: !!msg.note, fh: fh }); });
     send("ESCALATE_RESULT", { ok: true, n: ids.length, req: msg.req, record: JSON.parse(rec) });
   });
 }
@@ -2564,7 +2628,7 @@ function resolveOne(msg) {
 
 function handleResolveIssue(msg) {
   resolveOne(msg).then(function(res) {
-    if (res.success) { track("accept", { r: msg.reason || null, n: 1, note: !!msg.note }); }
+    if (res.success) { tmFramesOf([msg.nodeId]).then(function(fh) { track("accept", { r: msg.reason || null, n: 1, note: !!msg.note, fh: fh }); }); }
     send("RESOLVE_RESULT", res);
   });
 }
@@ -2585,7 +2649,7 @@ function handleResolveIssues(msg) {
     });
   });
   chain.then(function() {
-    if (ok) { track("accept", { r: null, n: ok, note: !!msg.note, bulk: true }); }
+    if (ok) { tmFramesOf(items.map(function(it) { return it.nodeId; })).then(function(fh) { track("accept", { r: null, n: ok, note: !!msg.note, bulk: true, fh: fh }); }); }
     send("RESOLVE_BULK_DONE", { ok: ok, failed: failed });
   });
 }

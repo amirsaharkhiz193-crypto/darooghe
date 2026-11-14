@@ -225,6 +225,7 @@
     .item__note-input { flex: 1 1 180px; min-width: 120px; padding: 4px 8px; background: var(--bg); border: 1px solid var(--border-2); border-radius: var(--r-sm); color: var(--text); font-family: var(--font); font-size: 11px; }
     .item__note-input:focus { outline: none; border-color: var(--accent); }
     .item__stale { margin-top: 4px; font-size: 11px; color: var(--warning); line-height: 1.5; }
+    .item__done, .item__done:hover { cursor: default; background: transparent !important; color: var(--text-2) !important; box-shadow: none !important; }
     .item__esc { margin-top: 4px; font-size: 11px; color: var(--text-2); line-height: 1.5; display: flex; align-items: center; gap: 4px; }
     .item__code--resolved { color: var(--accent); background: transparent; border-color: var(--accent); border-style: dashed; }
     .item__resolved { margin-top: 2px; font-size: 11px; color: var(--text-2); line-height: 1.5; }
@@ -1894,7 +1895,10 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.14.1", date: "2026-11-13", current: true, changes: [
+      { version: "2.15.0", date: "2026-11-14", current: true, changes: [
+        { type: "fix", text: "Small internal tidy-ups" },
+      ]},
+      { version: "2.14.1", date: "2026-11-13", current: false, changes: [
         { type: "fix", text: "Small internal tidy-ups" },
       ]},
       { version: "2.14.0", date: "2026-11-13", current: false, changes: [
@@ -2101,6 +2105,11 @@
         warnGroupColor: "Raw colours (no token)", warnGroupText: "Text without a text style",
         scanTitle: "Darooghe is checking…", scanCount: "{n} of {total}",
         exportSummary: "Summary CSV", exportSummaryDone: "Summary downloaded: {n} frames.",
+        tmLogTitle: "Usage statistics: last events", tmLogHint: "To check that tracking works: do something (audit, accept, send…) and see it here. Sent = it reached GitLab.",
+        tmLogRefresh: "Refresh", tmLogFlush: "Send now", tmLogEmpty: "No events in this session yet.", tmLogSent: "sent", tmLogWaiting: "waiting",
+        tmLogQueued: "{n} waiting to upload", tmLogLast: "last upload {when} ({code})", tmLogNever: "no upload yet in this session", tmLogNet: "no network",
+        tmLogOff: "Usage statistics are switched off on this computer.", tmLogNoToken: "No upload token in this build.",
+        wrongBtn: "Not an issue?", wrongDone: "Reported — thanks", wrongLabel: "Not an issue? Report it: {name}",
         tmTitle: "Usage statistics", tmLabel: "Share audit statistics with the DS team",
         tmHint: "Only counts (how many instances, which issue types, which components) go to the DS team's GitLab when you're on the company network. No layer or screen names, no text, no designs.",
         noWriteTitle: "Audit without saving", noWriteLabel: "Don't save anything to the file", noWritePill: "Not saving",
@@ -2302,6 +2311,11 @@
         warnGroupColor: "رنگ ثابت (بدون توکن)", warnGroupText: "متن بدون استایل متن",
         scanTitle: "داروغه در حال بررسی است…", scanCount: "{n} از {total}",
         exportSummary: "CSV خلاصه", exportSummaryDone: "خلاصه دانلود شد: {n} فریم.",
+        tmLogTitle: "آمار استفاده: آخرین رویدادها", tmLogHint: "برای اطمینان از ثبت درست: کاری بکنید (بررسی، پذیرش، ارسال…) و اینجا ببینید. «ارسال شد» یعنی به GitLab رسیده.",
+        tmLogRefresh: "به‌روزرسانی", tmLogFlush: "ارسال الان", tmLogEmpty: "هنوز رویدادی در این اجرا ثبت نشده.", tmLogSent: "ارسال شد", tmLogWaiting: "در صف",
+        tmLogQueued: "{n} مورد در صف ارسال", tmLogLast: "آخرین ارسال {when} ({code})", tmLogNever: "در این اجرا هنوز ارسالی نبوده", tmLogNet: "بدون شبکه",
+        tmLogOff: "آمار استفاده روی این کامپیوتر خاموش است.", tmLogNoToken: "توکن ارسال در این نسخه نیست.",
+        wrongBtn: "این ایراد درست نیست", wrongDone: "گزارش شد، ممنون", wrongLabel: "گزارش اینکه این ایراد درست نیست: {name}",
         tmTitle: "آمار استفاده", tmLabel: "ارسال آمار بررسی‌ها برای تیم دیزاین سیستم",
         tmHint: "فقط عددها (تعداد اینستنس‌ها، نوع ایرادها، کامپوننت‌ها) وقتی به شبکهٔ شرکت وصل هستید برای GitLab تیم دیزاین سیستم ارسال می‌شود. نه اسم لایه و صفحه، نه متن، نه طرح.",
         noWriteTitle: "بررسی بدون ثبت", noWriteLabel: "هیچ چیزی در فایل ثبت نشود", noWritePill: "بدون ثبت",
@@ -2671,6 +2685,7 @@
       plus:        '<path d="M12 5v14"/><path d="M5 12h14"/>',
       shield:      '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
       sparkles:    '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/>',
+      flag:        '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
       chart:       '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
       history:     '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
       wrench:      '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
@@ -2819,6 +2834,7 @@
       setTimeout(updateCtxBar, 0);
       dom.pageResults.classList.toggle("is-active", page === "results");
       dom.pageSettings.classList.toggle("is-active", page === "settings");
+      if (page === "settings" && document.getElementById("js-tmlog-panel")) { postToPlugin("TM_LOG_GET"); }
       dom.pageVerify.classList.toggle("is-active", page === "verify");
       dom.navAudit.classList.toggle("is-active", page === "results");
       dom.navResults.classList.toggle("is-active", page === "results");
@@ -2976,7 +2992,9 @@
       if (msg.type === "TEAM_RULES")            { state.teamRules = msg.rules || []; renderRulesPanel(); }
       if (msg.type === "GL_STATUS")             { state.gh = msg; renderGh(); if (state.rulingKey) { renderList(); } }
       if (msg.type === "TEAM_RULE_RESULT")      { handleTeamRuleResult(msg); }
-      if (msg.type === "TELEMETRY_INFO")        { var tmP = document.getElementById("js-tm-panel"), tmC = document.getElementById("js-tm"); if (tmP) { tmP.hidden = !msg.available || isDev(); } if (tmC) { tmC.checked = !!msg.on; } }
+      if (msg.type === "TM_LOG")                { renderTmLog(msg); }
+      if (msg.type === "WRONG_RESULT")          { if (msg.ok) { showResultsStatus("success", t("wrongDone")); } }
+      if (msg.type === "TELEMETRY_INFO")        { state.tm = msg; if (state.auditData) { renderList(); } var tmP = document.getElementById("js-tm-panel"), tmC = document.getElementById("js-tm"); if (tmP) { tmP.hidden = !msg.available || isDev(); } if (tmC) { tmC.checked = !!msg.on; } }
       if (msg.type === "ESCALATION_INFO")       { state.escalation = { enabled: !!msg.enabled, channel: msg.channel || "" }; renderMm(); if (state.auditData) { renderList(); updateBulkBar(); } }
       if (msg.type === "ESCALATE_SEND")         { doEscalateSend(msg); }
       if (msg.type === "ESCALATE_RESULT")       { handleEscalateResult(msg); }
@@ -3055,6 +3073,8 @@
       if (mmPanel) { mmPanel.hidden = !rev || dev || EDITION === "public"; }
       var nwPanel = document.getElementById("js-nowrite-panel");
       if (nwPanel) { nwPanel.hidden = !rev || dev || EDITION === "public"; }
+      var tlPanel = document.getElementById("js-tmlog-panel");
+      if (tlPanel) { tlPanel.hidden = !rev || dev || EDITION === "public"; }
       var sgAdmin = document.getElementById("js-sg-admin");
       if (sgAdmin) { sgAdmin.hidden = dom.tokenPanel.hidden && dom.reportPanel.hidden && (!rulesPanel || rulesPanel.hidden); }
       if (rev) {
@@ -3219,7 +3239,7 @@
     function handleAuditResult(result) {
       if (state.ignoreResult) { return; }      // the user stopped this audit
       setAuditing(false);                       // Run is back in the footer
-      state.bulkSel = {}; state.bulkBusy = false; state.staleIds = {};
+      state.bulkSel = {}; state.bulkBusy = false; state.staleIds = {}; state.wrongSent = {};
       dom.runBtn.disabled = false;
       state.auditData     = result;
       state.issueFilter   = "all";
@@ -3857,6 +3877,7 @@
       if (!warn) {
         escTag(bodyEl, list);
         var unsent = list.filter(function(it) { return !it.escalated; });
+        if (canReportWrong()) { acts.appendChild(wrongButton(list, compName)); }
         if (canEscalate() && unsent.length) {
           acts.appendChild(escButton(unsent, "c:" + sig));
           if (state.escKey === "c:" + sig) { bodyEl.appendChild(escBox(unsent, "c:" + sig)); }
@@ -3962,6 +3983,47 @@
       return box;
     }
 
+    // Settings › Admin: the last usage events (to check tracking end to end) and the last upload.
+    function renderTmLog(m) {
+      var ul = document.getElementById("js-tmlog-list"), st = document.getElementById("js-tmlog-status");
+      if (!ul) { return; }
+      var last = m.last ? t("tmLogLast").replace("{when}", formatWhen(m.last.at)).replace("{code}", m.last.status === 0 ? t("tmLogNet") : String(m.last.status)) : t("tmLogNever");
+      st.textContent = (!m.hasToken ? t("tmLogNoToken") : !m.on ? t("tmLogOff") : t("tmLogQueued").replace("{n}", num(m.queued)) + " · " + last);
+      ul.innerHTML = "";
+      if (!m.items.length) { var e = document.createElement("li"); e.className = "rules-list__empty"; e.textContent = t("tmLogEmpty"); ul.appendChild(e); return; }
+      m.items.forEach(function(it) {
+        var li = document.createElement("li"); li.className = "rules-list__row";
+        var head = document.createElement("div"); head.className = "rules-list__head";
+        addSpan(head, "group__code", it.e);
+        addSpan(head, "rules-list__name", formatWhen(it.ts));
+        addSpan(head, "item__tag", it.sent ? t("tmLogSent") : t("tmLogWaiting"));
+        li.appendChild(head);
+        var k = addDiv(li, "rules-list__ov", it.keys.join(" · ")); k.dir = "ltr";
+        ul.appendChild(li);
+      });
+    }
+    (function() {
+      var r = document.getElementById("js-tmlog-refresh"), f = document.getElementById("js-tmlog-flush");
+      if (r) { r.addEventListener("click", function() { postToPlugin("TM_LOG_GET"); }); }
+      if (f) { f.addEventListener("click", function() { document.getElementById("js-tmlog-status").textContent = t("escSending"); postToPlugin("TM_FLUSH_NOW"); }); }
+    })();
+    // «This issue is wrong»: a false-positive report for the usage statistics (how precise the audit is).
+    function canReportWrong() { return !isDev() && !!state.tm && !!state.tm.on; }
+    function wrongButton(list, compName) {
+      var first = list[0], k = "w:" + first.id;
+      if ((state.wrongSent || {})[first.id]) { var d = document.createElement("span"); d.className = "item__resolve item__done"; d.tabIndex = -1; d.setAttribute("data-fk", k); d.appendChild(icoEl("flag", "sm")); d.appendChild(document.createTextNode(" " + t("wrongDone"))); return d; }
+      var b = document.createElement("button"); b.type = "button"; b.className = "item__resolve";
+      b.setAttribute("data-fk", k); b.setAttribute("aria-label", t("wrongLabel").replace("{name}", compName || ""));
+      b.appendChild(icoEl("flag", "sm")); b.appendChild(document.createTextNode(" " + t("wrongBtn")));
+      b.addEventListener("click", function() {
+        var kinds = [];
+        list.forEach(function(it) { (it.overrides || []).forEach(function(o) { if (kinds.indexOf(o.type) < 0) { kinds.push(o.type); } }); });
+        (state.wrongSent = state.wrongSent || {})[first.id] = true;
+        postToPlugin("REPORT_WRONG", { nodeId: first.id, reason: first.reason, component: compName || "", fields: kinds });
+        state.refocus = k; renderList();   // focus stays on the row's «reported» note
+      });
+      return b;
+    }
     // ── Ask the DS team (Mattermost): anyone can send issues that need a design system decision ──
     // The webhook is in the team config; code.js hands it over only for the send. Mattermost doesn't allow CORS,
     // so the post is no-cors (a form body, which Mattermost accepts as payload=…): it goes out, we can't read the answer.
@@ -4830,6 +4892,11 @@
         ra.addEventListener("click", function(e) { e.stopPropagation(); });
         ra.appendChild(ruleButton([item], "r:" + item.id));
         if (state.rulingKey === "r:" + item.id) { bodyEl.appendChild(ruleBox([item], "r:" + item.id)); }
+      }
+      if (!inCl && canReportWrong()) {
+        var wa = bodyEl.querySelector(".item__actions") || addDiv(bodyEl, "item__actions");
+        wa.addEventListener("click", function(e) { e.stopPropagation(); });
+        wa.appendChild(wrongButton([item], compName));
       }
       if (!inCl) {
         escTag(bodyEl, [item]);
