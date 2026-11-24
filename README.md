@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.15.0** · [Figma Community](#) · Free
+**Version 2.16.0** · [Figma Community](#) · Free
 
 ---
 
@@ -18,7 +18,7 @@ Darooghe checks every component in a Figma frame against **your** design system.
 Darooghe needs no token and no account. It learns your design system directly from the library file:
 
 1. Open your design system **library file** in Figma.
-2. Run Darooghe and open **Settings → Register this file as a library**. Only published components are registered, so publish the library first.
+2. Run Darooghe and open **Settings** (the gear at the top) **→ Register this file as a library**. Only published components are registered, so publish the library first.
 3. Repeat for each library you use, for example icons or illustrations.
 
 Re-register a library after you publish changes to it. Registered libraries are stored on your device and work in every file.
@@ -28,8 +28,8 @@ Re-register a library after you publish changes to it. Registered libraries are 
 1. **Select a frame** on the canvas (Shift-select to audit several), or pick one from the list.
 2. Press **Run audit**.
 3. The summary shows the compliance %, then a split bar: on system · accepted exceptions · modified · off system.
-4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. The same issue repeated across instances is one row with a count («×30 · on 30 screens»), with Accept all, Select on canvas and Show. Click the arrow to jump to the layer.
-5. **A section or several frames** get one verdict and a short list of screens (failed first; frames without components fold into one line). Click a screen to see only its issues.
+4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. The same issue repeated across instances is one row with a count («×30 · on 30 screens»), with Accept all and Show; click the row (or its arrow) to select them all on the canvas. Click the arrow to jump to the layer. The small flag beside the arrow reports an issue that isn't one (hover it for what it does).
+5. **A section or several frames** get one verdict; **View details** in it opens the list of screens (failed first; frames without components fold into one line). Click a screen to see only its issues.
 5. Fix the issues and re-audit until the frame passes.
 
 ### What it finds
