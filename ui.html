@@ -1479,6 +1479,11 @@
     .settings-back:hover { color: var(--text); }
     [dir="rtl"] .settings-back__ico svg { transform: scaleX(-1); }
     .search[hidden] { display: none !important; }
+    .rtab[hidden], .ov__export[hidden] { display: none !important; }
+    .soon__list { margin: 4px 0 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+    .soon__list b { color: var(--text); }
+    .feat__list { display: flex; flex-direction: column; gap: 4px; }
+    .dev-soon { padding: 16px; border-radius: var(--r-lg); background: var(--surface); }
     /* «Not an issue?» flag: icon-only, beside the row arrow; the tooltip explains it */
     .item__flag { flex-shrink: 0; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: none; border-radius: 50%;
       background: transparent; color: var(--text-2); cursor: pointer; }
@@ -1486,6 +1491,15 @@
     .item__flag.is-reported, .item__flag.is-reported:hover { color: var(--brand); background: transparent; cursor: default; }
     .item__flag.is-reported svg path:first-child { fill: currentColor; }
     .item__flag:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .item__tag--scope { background: var(--surface-3); color: var(--text); }
+    /* Row end icons (flag, arrow) are 28 px; centre them on the 19 px title line, like the checkbox and the dot */
+    .item--issue > .item__flag { margin-block: -4.5px; }
+    /* Row hit: one invisible button covers the row (click / Enter selects on the canvas); real controls sit above it */
+    .item { position: relative; }
+    .item__hit { position: absolute; inset: 0; z-index: 0; margin: 0; padding: 0; border: none; background: none; border-radius: inherit; cursor: pointer; }
+    .item__hit:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+    .item button:not(.item__hit), .item input, .item textarea, .item a, .item .rulebox, .item .item__actions { position: relative; z-index: 1; }
+    .item--issue > .item__pick { position: relative; top: -1px; }
 
     /* ── Buttons: Run is the one loud action; other primary buttons on the pages are tonal ── */
     .page .btn--primary { background: var(--brand-dim); color: var(--brand); box-shadow: none; }
@@ -1708,6 +1722,13 @@
       </div>
       <button type="button" class="settings-back" id="js-settings-back"><span class="ico settings-back__ico" data-ico="arrowLeft" data-ico-size="md"></span><span data-i18n="backToAudit">Back to audit</span></button>
 
+      <!-- Staged rollout: what the team gets next (only the switched-off parts) -->
+      <div class="panel soon" id="js-soon-panel" hidden>
+        <div class="panel__title-row"><h2 class="panel__title" data-icon="sparkles" data-i18n="soonTitle">Coming soon for the team</h2></div>
+        <div class="hint" data-i18n="soonHint">Darooghe opens in stages. These parts are ready and switch on in the next stage:</div>
+        <ul class="soon__list" id="js-soon-list"></ul>
+      </div>
+
       <!-- Settings grouped by audience: libraries · team · admin · about -->
       <h2 class="sgroup" data-i18n="sgLibraries">Design system</h2>
       <div class="panel">
@@ -1926,7 +1947,11 @@
     var FORMSPREE_URL  = "https://formspree.io/f/xzedylpk";   // opt-in subscribe form (public edition); empty hides it
 
         var CHANGELOG = [
-      { version: "2.16.0", date: "2026-11-24", current: true, changes: [
+      { version: "3.0.0", date: "2026-11-24", current: true, changes: [
+        { type: "new", text: "Cleaner issue rows: click a row to select its layers on the canvas (no separate arrow), no frame path on each row" },
+        { type: "new", text: "«Out of this project's scope»: mark an old part the project doesn't update; it doesn't block verification and anyone can undo it" },
+      ]},
+      { version: "2.16.0", date: "2026-11-24", current: false, changes: [
         { type: "new", text: "A calmer screen: Settings is the gear at the top (next to Tutorial), the header shows Darooghe's sheriff star, and the search field is gone for now" },
         { type: "new", text: "The verdict is shorter: its actions are text buttons, and with several frames «View details» opens the list of screens inside it" },
         { type: "new", text: "Start audit is the one bright button; the others are quieter" },
@@ -2004,7 +2029,20 @@
     // ── i18n ─────────────────────────────────────────────────
     var I18N = {
       en: {
-        navAudit: "Audit", navResults: "Results", navSettings: "Settings", backToAudit: "Back to audit", detailsShow: "View details ({n} screens)", detailsHide: "Hide details", navHelp: "Tutorial", navLang: "تغییر زبان به فارسی", resizeTitle: "Drag to resize",
+        navAudit: "Audit", navResults: "Results", navSettings: "Settings", backToAudit: "Back to audit", soonTitle: "Coming soon for the team", soonHint: "Darooghe opens in stages. These parts are ready and switch on in the next stage:",
+        feat_escalate: "Ask the DS team", featd_escalate: "send an issue you can't fix to the design system team's channel",
+        feat_handoff: "Ready for dev", featd_handoff: "hand a verified frame to development, and the Dev Mode view for developers",
+        feat_history: "Frame history", featd_history: "who audited or changed a frame, when, and what changed",
+        feat_warnings: "Warnings", featd_warnings: "raw colours and text without a style outside components",
+        feat_exports: "CSV exports", featd_exports: "a summary and a detailed CSV of an audit",
+        feat_scope: "Out of this project's scope", featd_scope: "mark an old part the project doesn't update, so it doesn't block verification",
+        scopeLabel: "Out of this project's scope: an old part this project doesn't update — it won't count against verification ({name})",
+        scopeLabelN: "Out of this project's scope: mark all {n} — old parts this project doesn't update won't count against verification ({name})",
+        scopeDone: "{n} marked as out of this project's scope.", scopeTag: "Out of scope",
+        noteScope: "{n} marked as out of this project's scope — not counted in verification (Exceptions tab).",
+        featTitle: "Stages: what the team sees", featHint: "Parts switched off are hidden for everyone except admins; they still record data. Saved in the team config — everyone gets it on their next plugin start.",
+        featSave: "Save for everyone", featSaved: "Saved. Everyone gets it on their next plugin start.", featAdminNote: "You're an admin, so you see every part. «View as regular user» shows the team's view.",
+        devSoon: "The Dev Mode view opens for the team in the next stage.", detailsShow: "View details ({n} screens)", detailsHide: "Hide details", navHelp: "Tutorial", navLang: "تغییر زبان به فارسی", resizeTitle: "Drag to resize",
         settingsTitle: "SETTINGS",
         target: "Target", refreshList: "Refresh list", chooseFrame: "Choose a frame…", noFrames: "No frames on this page",
         hintTarget: "Select frames or a section on the canvas, or pick one from the list.",
@@ -2210,7 +2248,20 @@
         histWhy_error: "Couldn't reach Figma's version history — checked again later.",
       },
       fa: {
-        navAudit: "بررسی", navResults: "نتایج", navSettings: "تنظیمات", backToAudit: "بازگشت به بررسی", detailsShow: "مشاهدهٔ جزئیات ({n} صفحه)", detailsHide: "بستن جزئیات", navHelp: "راهنما", navLang: "Switch to English", resizeTitle: "برای تغییر اندازه بکشید",
+        navAudit: "بررسی", navResults: "نتایج", navSettings: "تنظیمات", backToAudit: "بازگشت به بررسی", soonTitle: "به‌زودی برای تیم", soonHint: "داروغه مرحله‌به‌مرحله فعال می‌شود. این بخش‌ها آماده‌اند و در مرحلهٔ بعد روشن می‌شوند:",
+        feat_escalate: "ارسال به تیم دیزاین سیستم", featd_escalate: "فرستادن ایرادی که نمی‌توانید درست کنید به کانال تیم دیزاین سیستم",
+        feat_handoff: "آمادهٔ توسعه", featd_handoff: "تحویل فریم تأییدشده به توسعه، و نمای Dev Mode برای توسعه‌دهنده‌ها",
+        feat_history: "تاریخچهٔ فریم", featd_history: "چه کسی و چه زمانی فریم را بررسی کرد یا تغییر داد، و چه چیزی عوض شد",
+        feat_warnings: "هشدارها", featd_warnings: "رنگ ثابت و متن بی‌استایل بیرون از کامپوننت",
+        feat_exports: "خروجی CSV", featd_exports: "خروجی خلاصه و جزئیات یک بررسی",
+        feat_scope: "خارج از اسکوپ پروژه", featd_scope: "علامت زدن بخش قدیمی‌ای که این پروژه به‌روزش نمی‌کند، تا جلوی تأیید را نگیرد",
+        scopeLabel: "خارج از اسکوپ این پروژه: بخش قدیمی‌ای که این پروژه به‌روزش نمی‌کند — در تأیید حساب نمی‌شود ({name})",
+        scopeLabelN: "خارج از اسکوپ این پروژه: علامت زدن هر {n} مورد — بخش‌های قدیمی که این پروژه به‌روزشان نمی‌کند در تأیید حساب نمی‌شوند ({name})",
+        scopeDone: "{n} مورد خارج از اسکوپ این پروژه علامت خورد.", scopeTag: "خارج از اسکوپ",
+        noteScope: "{n} مورد خارج از اسکوپ این پروژه علامت خورده و در تأیید حساب نشده (زبانهٔ استثناها).",
+        featTitle: "مرحله‌ها: تیم چه چیزی را می‌بیند", featHint: "بخش‌های خاموش برای همه به‌جز ادمین‌ها پنهان‌اند و داده‌شان همچنان ثبت می‌شود. در فایل تنظیمات تیم ذخیره می‌شود و همه از اجرای بعدی پلاگین آن را می‌گیرند.",
+        featSave: "ذخیره برای همه", featSaved: "ذخیره شد. همه از اجرای بعدی پلاگین آن را می‌گیرند.", featAdminNote: "شما ادمین هستید و همهٔ بخش‌ها را می‌بینید. «مشاهده به‌عنوان کاربر عادی» نمای تیم را نشان می‌دهد.",
+        devSoon: "نمای Dev Mode در مرحلهٔ بعد برای تیم فعال می‌شود.", detailsShow: "مشاهدهٔ جزئیات ({n} صفحه)", detailsHide: "بستن جزئیات", navHelp: "راهنما", navLang: "Switch to English", resizeTitle: "برای تغییر اندازه بکشید",
         settingsTitle: "تنظیمات",
         target: "فریم یا سکشن", refreshList: "به‌روزرسانی فهرست", chooseFrame: "یک فریم انتخاب کنید…", noFrames: "فریمی در این صفحه نیست",
         hintTarget: "فریم یا سکشن را روی کانواس انتخاب کنید یا از فهرست برگزینید. برای چند مورد، Shift را نگه دارید.",
@@ -2723,6 +2774,7 @@
       shield:      '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
       sparkles:    '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17v4"/><path d="M17 19h4"/>',
       flag:        '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+      archive:     '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
       arrowLeft:   '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
       chart:       '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
       history:     '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
@@ -3034,6 +3086,8 @@
       if (msg.type === "GL_STATUS")             { state.gh = msg; renderGh(); if (state.rulingKey) { renderList(); } }
       if (msg.type === "TEAM_RULE_RESULT")      { handleTeamRuleResult(msg); }
       if (msg.type === "TM_LOG")                { renderTmLog(msg); }
+      if (msg.type === "FEATURES")              { state.features = msg.flags || {}; applyFeatures(); }
+      if (msg.type === "FEATURES_RESULT")       { var fs = document.getElementById("js-feat-status"), fb = document.getElementById("js-feat-save"); if (fb) { fb.disabled = false; } if (fs) { fs.textContent = msg.ok ? t("featSaved") : t(I18N.en["ruleErr_" + msg.code] ? "ruleErr_" + msg.code : "ruleErr_gl_error"); } }
       if (msg.type === "WRONG_RESULT")          { if (msg.ok) { showResultsStatus("success", t("wrongDone")); } }
       if (msg.type === "TELEMETRY_INFO")        { state.tm = msg; if (state.auditData) { renderList(); } var tmP = document.getElementById("js-tm-panel"), tmC = document.getElementById("js-tm"); if (tmP) { tmP.hidden = !msg.available || isDev(); } if (tmC) { tmC.checked = !!msg.on; } }
       if (msg.type === "ESCALATION_INFO")       { state.escalation = { enabled: !!msg.enabled, channel: msg.channel || "" }; renderMm(); if (state.auditData) { renderList(); updateBulkBar(); } }
@@ -3390,7 +3444,8 @@
       }
 
       renderAuditVerdict(data);
-      renderAuditNotes((data.notes || []).concat(data.noWrite ? [{ code: "no_write" }] : []));
+      var nScope = (data.validInstances || []).filter(function(it) { return it.resolved && it.resolved.kind === "scope"; }).length;
+      renderAuditNotes((data.notes || []).concat(data.noWrite ? [{ code: "no_write" }] : []).concat(nScope ? [{ code: "scope", n: nScope }] : []));
 
       syncFramePage();
       renderStale();
@@ -3564,6 +3619,7 @@
         if (n.code === "raw_more")      { txt = t("noteRawMore").replace("{n}", num(n.n)); }
         if (n.code === "empty_skipped") { txt = t("noteEmptySkipped").replace("{n}", num(n.n)); }
         if (n.code === "no_write")      { txt = t("noWriteNote"); }
+        if (n.code === "scope")         { txt = t("noteScope").replace("{n}", num(n.n)); }
         if (txt) { texts.push(txt); }
       }
       if (!texts.length) { return; }
@@ -3885,7 +3941,6 @@
       addSpan(title, "item__count", "×" + num(list.length));
       var nf = distinctFrames(list);
       if (multiFrame() && nf > 1 && !state.frameFilter) { addSpan(title, "item__where", t("clusterFrames").replace("{n}", num(nf))); }
-      else if (first.parent && first.parent.name) { var wh = addSpan(title, "item__where", ""); wh.appendChild(icoEl("frame", "sm")); wh.appendChild(document.createTextNode(" ")); addSpan(wh, "ltr-iso", first.parent.name); }
       if (warn) {
         var wl = addDiv(addDiv(bodyEl, "item__details"), "item__detail");
         first.problems.forEach(function(it, k) { if (k) { wl.appendChild(document.createTextNode(" · ")); } wl.appendChild(document.createTextNode(fieldLabel(it.field) + (it.value ? " " : ""))); if (it.value) { addSpan(wl, "item__detail-value", it.value); } });
@@ -3956,13 +4011,11 @@
         el.appendChild(cb);
       }
       el.appendChild(bodyEl);
-      // Selecting the whole cluster on the canvas: the row itself (pointer) and the arrow like every row (keyboard).
-      var cgo = document.createElement("button"); cgo.type = "button"; cgo.className = "item__goto"; cgo.innerHTML = GOTO_SVG;
-      cgo.setAttribute("aria-label", t("clusterCanvas") + ": " + (compName || "") + " ×" + num(list.length));
-      cgo.addEventListener("click", function(e) { e.stopPropagation(); highlightAll(list); });
+      if (!warn && canScope()) { el.appendChild(scopeButton(list, compName)); }
       if (!warn && canReportWrong()) { el.appendChild(wrongButton(list, compName)); }
-      el.appendChild(cgo);
-      el.addEventListener("click", function() { highlightAll(list); });
+      var hit = rowHit((compName || "") + " ×" + num(list.length), function() { highlightAll(list); });
+      hit.setAttribute("aria-label", t("clusterCanvas") + ": " + (compName || "") + " ×" + num(list.length));
+      el.appendChild(hit);
       wrap.appendChild(el);
       var lst = document.createElement("div"); lst.className = "cluster__list"; lst.id = listId; lst.hidden = !open;
       list.forEach(function(it) {
@@ -4073,6 +4126,20 @@
     })();
     // «This issue is wrong»: a false-positive report for the usage statistics (how precise the audit is).
     function canReportWrong() { return !isDev() && !!state.tm && !!state.tm.on; }
+    // «Out of this project's scope»: anyone marks an old part the project doesn't update. It leaves the verdict, shows
+    // in the Exceptions tab as «Out of scope» (anyone can undo), and expires when the layer really changes.
+    function canScope() { return !isDev() && !!state.user && feat("scope"); }
+    function scopeButton(list, compName) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "item__flag item__scope";
+      b.innerHTML = ico("archive", "md");
+      b.setAttribute("aria-label", t(list.length > 1 ? "scopeLabelN" : "scopeLabel").replace("{name}", compName || "").replace("{n}", num(list.length)));
+      b.addEventListener("click", function(e) {
+        e.stopPropagation();
+        state.scopeBusy = true; b.disabled = true;
+        postToPlugin("RESOLVE_ISSUES", { items: list.map(function(it) { return { nodeId: it.id, reason: it.reason }; }), note: "", kind: "scope" });
+      });
+      return b;
+    }
     // A small flag at the end of the row, next to the arrow; the tooltip (its aria-label) says what it does.
     // Reported: the flag stays, filled, and says thanks (aria-disabled keeps it focusable for the tooltip).
     function wrongButton(list, compName) {
@@ -4096,7 +4163,7 @@
     // The webhook is in the team config; code.js hands it over only for the send. Mattermost doesn't allow CORS,
     // so the post is no-cors (a form body, which Mattermost accepts as payload=…): it goes out, we can't read the answer.
     function canEscalateCfg() { return !!state.escalation && state.escalation.enabled; }
-    function canEscalate() { return !isDev() && canEscalateCfg(); }
+    function canEscalate() { return !isDev() && canEscalateCfg() && feat("escalate"); }
     function escChannel() { return (state.escalation && state.escalation.channel) || t("escTeam"); }
     function escTag(bodyEl, list) {
       var sent = list.filter(function(it) { return !!it.escalated; });
@@ -4220,7 +4287,8 @@
       var el = document.createElement("div"); el.className = "item" + (item.resolved ? " item--issue" : "");
       var codeEl = document.createElement("span");
       codeEl.className = "item__code " + (item.resolved ? "item__code--resolved" : "item__code--success");
-      codeEl.textContent = item.resolved ? "RES" : "OK";
+      var isScope = !!(item.resolved && item.resolved.kind === "scope");
+      codeEl.textContent = isScope ? "OUT" : item.resolved ? "RES" : "OK";
       if (item.resolved) { codeEl.title = t("resolvedTag"); }
       var bodyEl = document.createElement("div"); bodyEl.className = "item__body";
       var nameEl = document.createElement("div"); nameEl.className = "item__name"; nameEl.appendChild(bdi(item.resolved && item.resolvedIssue && item.resolvedIssue.componentName ? item.resolvedIssue.componentName : item.name));
@@ -4231,7 +4299,10 @@
         var what = addDiv(bodyEl, "item__sub", (meta ? meta.code + " · " + t(meta.labelKey) : ""));
         what.title = what.textContent;
         var res = addDiv(bodyEl, "item__resolved");
-        if (item.resolved.rule) {
+        if (isScope) {
+          addSpan(res, "item__tag item__tag--scope", t("scopeTag"));
+          res.appendChild(document.createTextNode(" " + (item.resolved.by || "—") + " · " + formatWhen(item.resolved.at)));
+        } else if (item.resolved.rule) {
           addSpan(res, "item__tag item__tag--rule", t("ruleTag"));
           res.appendChild(document.createTextNode(" " + (item.resolved.by ? t("resolvedBy") + " " + item.resolved.by + " · " : "") + (item.resolved.at || "")));
         } else {
@@ -4241,20 +4312,18 @@
           res.appendChild(document.createTextNode(" — "));
           addSpan(res, "item__resolved-note", quote(item.resolved.note));
         }
-        if (canResolve(reasonKey(issue.reason)) && !item.resolved.rule) {   // a team rule is changed in the gist, not here
+        if ((canResolve(reasonKey(issue.reason)) || (isScope && !isDev())) && !item.resolved.rule) {   // a team rule is changed in the gist, not here; anyone undoes «out of scope»
           var undo = document.createElement("button"); undo.className = "item__link"; undo.appendChild(icoEl("undo", "sm")); undo.appendChild(document.createTextNode(" " + t("unresolve")));
           undo.addEventListener("click", function(e) { e.stopPropagation(); undo.disabled = true; postToPlugin("UNRESOLVE_ISSUE", { nodeId: item.id }); });
           res.appendChild(undo);
         }
       } else {
         var lib = t("from") + (item.dsSource || (DEFAULT_DS ? DEFAULT_DS.name : ""));
-        var where = item.parent ? item.parent.name : "";
-        var subEl  = document.createElement("div"); subEl.className = "item__sub"; subEl.textContent = where || lib;
-        subEl.title = (item.path ? item.path + " · " : "") + lib;
+        var subEl  = document.createElement("div"); subEl.className = "item__sub"; subEl.textContent = lib;
         bodyEl.appendChild(subEl);
       }
-      el.appendChild(codeEl); el.appendChild(bodyEl); el.appendChild(gotoButton(item));
-      el.addEventListener("click", function() { focusCanvas(item.id); });
+      el.appendChild(codeEl); el.appendChild(bodyEl);
+      el.appendChild(rowHit((item.resolved && item.resolvedIssue && item.resolvedIssue.componentName) || item.name, function() { focusCanvas(item.id); }));
       return el;
     }
 
@@ -4358,6 +4427,57 @@
       dom.idStatus.textContent = "";
     }
 
+    // ── Staged rollout: parts the team config switched off are hidden (admins see everything unless «view as user») ──
+    var FEATURE_KEYS = ["escalate", "handoff", "history", "warnings", "exports", "scope"];
+    function feat(k) {
+      var real = state.realUser || state.user || {};
+      if (real.isAdmin && !state.viewAsUser) { return true; }
+      return !state.features || state.features[k] !== false;
+    }
+    function applyFeatures() {
+      var warnTab = document.getElementById("js-chip-warn");
+      if (warnTab) { warnTab.hidden = !feat("warnings"); }
+      if (!feat("warnings") && state.activeTab === "warn") { setTab("invalid"); }
+      ["js-export-btn", "js-export-sum-btn"].forEach(function(id) { var b = document.getElementById(id); if (b) { b.hidden = !feat("exports"); } });
+      // Coming soon: what the team doesn't see yet (from the config — the same list for admins)
+      var soon = FEATURE_KEYS.filter(function(k) { return state.features && state.features[k] === false; });
+      var panel = document.getElementById("js-soon-panel"), ul = document.getElementById("js-soon-list");
+      if (panel && ul) {
+        panel.hidden = !soon.length || EDITION === "public";
+        ul.innerHTML = "";
+        soon.forEach(function(k) { var li = document.createElement("li"); var b = document.createElement("b"); b.textContent = t("feat_" + k); li.appendChild(b); li.appendChild(document.createTextNode(" — " + t("featd_" + k))); ul.appendChild(li); });
+      }
+      renderFeatAdmin();
+      if (state.auditData) { renderResults(); }
+      renderVerification();
+      updateBulkBar();
+    }
+    function renderFeatAdmin() {
+      var panel = document.getElementById("js-feat-panel"), list = document.getElementById("js-feat-list");
+      if (!panel || !list) { return; }
+      var real = state.realUser || state.user || {};
+      panel.hidden = !real.isAdmin || state.viewAsUser || isDev() || EDITION === "public";
+      list.innerHTML = "";
+      FEATURE_KEYS.forEach(function(k) {
+        var id = "js-feat-" + k, row = document.createElement("label"); row.className = "nowrite-row"; row.setAttribute("for", id);
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.className = "lib-row__check"; cb.id = id; cb.setAttribute("data-feat", k);
+        cb.checked = !state.features || state.features[k] !== false;
+        var tx = document.createElement("span"); tx.textContent = t("feat_" + k);
+        row.appendChild(cb); row.appendChild(tx); list.appendChild(row);
+      });
+      var note = document.createElement("div"); note.className = "hint"; note.textContent = t("featAdminNote"); list.appendChild(note);
+    }
+    (function() {
+      var save = document.getElementById("js-feat-save");
+      if (!save) { return; }
+      save.addEventListener("click", function() {
+        var flags = {};
+        document.querySelectorAll("#js-feat-list [data-feat]").forEach(function(cb) { flags[cb.getAttribute("data-feat")] = cb.checked; });
+        save.disabled = true; document.getElementById("js-feat-status").textContent = t("ruleAdding");
+        postToPlugin("FEATURES_SET", { flags: flags });
+      });
+    })();
+
     // Admin preview: show the plugin exactly as a regular user (no reviewer/admin UI). UI-only, this session.
     function applyUserView() {
       var real = state.realUser || state.user;
@@ -4366,7 +4486,7 @@
       dom.viewAsBar.hidden = !on;
       dom.viewAsBtn.hidden = !real.isAdmin || on || EDITION === "public";
       renderReviewerInfo(); renderTokenStatus(); renderLibList();
-      if (state.auditData) { renderList(); }
+      applyFeatures();
     }
     function setViewAsUser(on) { state.viewAsUser = on; applyUserView(); }
 
@@ -4517,13 +4637,13 @@
       if (!msg.success) { showReportStatus("error", t("failed") + (msg.error || "")); return; }
       var rows = msg.rows || [];
       if (!rows.length) { showReportStatus("info", t("reportEmpty")); return; }
-      var head = ["Page", "Frame", "Layer", "Component", "Variant", "Issue", "Status", "Accepted by", "Date", "Note", "Link"];
+      var head = ["Page", "Frame", "Layer", "Component", "Variant", "Issue", "Kind", "Status", "Accepted by", "Date", "Note", "Link"];
       var lines = [head.join(",")], active = 0;
       for (var i = 0; i < rows.length; i++) {
         var r = rows[i];
         if (r.status === "active") { active++; }
         var link = nodeLink(msg.fileKey, r.nodeId);
-        lines.push([r.page, r.frame, r.layer, r.component, r.variant, REASON_CODE[r.reason] || r.reason, r.status, r.by, (r.at || "").slice(0, 10), r.note, link].map(csvCell).join(","));
+        lines.push([r.page, r.frame, r.layer, r.component, r.variant, REASON_CODE[r.reason] || r.reason, r.kind || "exception", r.status, r.by, (r.at || "").slice(0, 10), r.note, link].map(csvCell).join(","));
       }
       state.reportCsv = downloadCsv("darooghe-exceptions-" + csvFileStem(msg.fileName), lines);
       dom.reportCopy.hidden = false;
@@ -4769,6 +4889,14 @@
     // Isolates mixed-direction text (e.g. "_Base/Button" inside the Persian UI) without changing alignment.
     function bdi(text) { var el = document.createElement("bdi"); el.textContent = text; return el; }
 
+    // A row selects its layer(s) on the canvas: one invisible button stretched over the row (keyboard + screen readers),
+    // so there is no separate arrow. Controls inside the row sit above it (see «Row hit» in the styles).
+    function rowHit(label, go) {
+      var b = document.createElement("button"); b.type = "button"; b.className = "item__hit";
+      b.setAttribute("aria-label", t("showOnCanvas") + ": " + (label || ""));
+      b.addEventListener("click", function(e) { e.stopPropagation(); go(); });
+      return b;
+    }
     function gotoButton(item) {
       var b = document.createElement("button"); b.type = "button"; b.className = "item__goto"; b.innerHTML = GOTO_SVG;
       b.setAttribute("aria-label", t("showOnCanvas") + ": " + (item.componentName || item.name || ""));
@@ -4860,11 +4988,7 @@
       var title = addDiv(bodyEl, "item__title");
       addSpan(title, "item__name", item.name).dir = "auto";
       addSpan(title, "item__layer", item.nodeType ? item.nodeType.toLowerCase() : "");
-      if (inCl && (item.frameName || item.parent)) {
-        var wh = addSpan(title, "item__where", ""); wh.appendChild(icoEl("frame", "sm")); wh.appendChild(document.createTextNode(" "));
-        addSpan(wh, "ltr-iso", multiFrame() && item.frameName ? item.frameName : item.parent.name);
-      }
-      if (inCl) { el.appendChild(bodyEl); el.appendChild(gotoButton(item)); el.addEventListener("click", function() { focusCanvas(item.id); }); return el; }
+      if (inCl) { el.appendChild(bodyEl); el.appendChild(rowHit(item.name, function() { focusCanvas(item.id); })); return el; }
       var details = addDiv(bodyEl, "item__details");
       var line = addDiv(details, "item__detail");
       for (var k = 0; k < item.problems.length; k++) {
@@ -4876,8 +5000,7 @@
       var fix = addDiv(bodyEl, "item__fix");
       var b = document.createElement("b"); b.appendChild(document.createTextNode(t("fixLabel"))); fix.appendChild(b);
       fix.appendChild(document.createTextNode(rawFixText(item.problems)));
-      el.appendChild(bodyEl); el.appendChild(gotoButton(item));
-      el.addEventListener("click", function() { focusCanvas(item.id); });
+      el.appendChild(bodyEl); el.appendChild(rowHit(item.name, function() { focusCanvas(item.id); }));
       return el;
     }
 
@@ -4898,14 +5021,6 @@
       if (item.variantName) { nameEl.title = compName + " — " + item.variantName; }   // variant: on hover, not a line of its own
       if (item.name && item.name !== compName && item.name !== item.mainComponentName) {
         addSpan(title, "item__layer", t("layerLabel") + " " + quote(item.name));
-      }
-      // Where: the frame when several were audited (the parent repeats across screens), else the direct parent
-      var whereName = (multiFrame() && !byFrame() && !state.frameFilter && item.frameName) ? item.frameName : (item.parent ? item.parent.name : "");
-      if (whereName) {
-        var where = addSpan(title, "item__where", "");
-        where.appendChild(icoEl("frame", "sm")); where.appendChild(document.createTextNode(" "));
-        addSpan(where, "ltr-iso", whereName);
-        where.title = t("inLabel") + " " + (item.path || whereName);
       }
       // Which library it really comes from (team build looks it up)
       if (!inCl && key === "external_library" && item.source) {
@@ -4973,9 +5088,9 @@
 
       if (canPick(item)) { el.appendChild(pickBox(item, compName)); }
       el.appendChild(bodyEl);
+      if (!inCl && canScope()) { el.appendChild(scopeButton([item], compName)); }
       if (!inCl && canReportWrong()) { el.appendChild(wrongButton([item], compName)); }
-      el.appendChild(gotoButton(item));
-      el.addEventListener("click", function() { focusCanvas(item.id); });
+      el.appendChild(rowHit(compName, function() { focusCanvas(item.id); }));
       return el;
     }
 
@@ -5033,7 +5148,8 @@
     function handleBulkDone(msg) {
       state.bulkBusy = false; state.bulkSel = {}; dom.bulkNote.value = "";
       renderResults(); updateBulkBar();
-      var txt = t("bulkDone").replace("{n}", num(msg.ok || 0)) + (msg.failed ? t("bulkFailed").replace("{n}", num(msg.failed)) : "");
+      var txt = t(state.scopeBusy ? "scopeDone" : "bulkDone").replace("{n}", num(msg.ok || 0)) + (msg.failed ? t("bulkFailed").replace("{n}", num(msg.failed)) : "");
+      state.scopeBusy = false;
       showResultsStatus(msg.failed ? "error" : "success", txt);
     }
 
@@ -5463,7 +5579,7 @@
       if (opts.nextStep && !isDev()) {
         var live = (state.verifyItems || []).filter(function(v) { return v.id === item.id; })[0] || {};
         var step = null;
-        if (item.state === "verified" && live.canMarkReady && !live.devStatus) {
+        if (item.state === "verified" && live.canMarkReady && !live.devStatus && feat("handoff")) {
           step = { icon: "code", label: t("markReady"), primary: true, run: function(b) { b.disabled = true; postToPlugin("MARK_READY_FOR_DEV", { frameId: item.id }); } };
         } else if (item.state === "failed") {
           step = { icon: "arrowUpRight", label: t("goToIssues"), run: function() {
@@ -5487,7 +5603,7 @@
         }
       }
 
-      if (opts.allowActions && item.canMarkReady && !item.devStatus) {
+      if (opts.allowActions && item.canMarkReady && !item.devStatus && feat("handoff")) {
         var btn = document.createElement("button"); btn.type = "button";
         btn.className = "verify-card__action";
         btn.appendChild(icoEl("code", "sm")); btn.appendChild(document.createTextNode(t("markReady")));
@@ -5505,7 +5621,7 @@
         makeActivatable(card, go, t("vs_" + st) + " — " + (item.name || "") + ". " + t("showOnCanvas"));
       }
 
-      var log = (!opts.fromAudit && item.log) ? item.log : [];
+      var log = (!opts.fromAudit && item.log && feat("history")) ? item.log : [];
       if (!log.length) { return card; }
       var entry = document.createElement("div"); entry.className = "verify-entry";
       var listId = "vlog-" + String(item.id).replace(/[^A-Za-z0-9]/g, "-") + (opts.dev ? "-d" : "");
@@ -5615,6 +5731,10 @@
 
     function renderVerification() {
       renderStoredVerdicts(dom.verifyList, state.verifyItems, { allowActions: !isDev() });
+      if (isDev() && !feat("handoff")) {   // the Dev Mode view opens with the handoff stage
+        if (dom.verifyListDev) { dom.verifyListDev.innerHTML = ""; var ds = document.createElement("div"); ds.className = "hint dev-soon"; ds.textContent = t("devSoon"); dom.verifyListDev.appendChild(ds); }
+        return;
+      }
       renderStoredVerdicts(dom.verifyListDev, state.verifyItems, { allowActions: false, dev: true });
     }
 

@@ -2,7 +2,7 @@
 
 Darooghe checks every component in a Figma frame against **your** design system. It shows exactly what's off and how to fix it, stamps clean frames as **verified** for handoff, and notices if they change afterwards.
 
-**Version 2.16.0** · [Figma Community](#) · Free
+**Version 3.0.0** · [Figma Community](#) · Free
 
 ---
 
@@ -28,7 +28,7 @@ Re-register a library after you publish changes to it. Registered libraries are 
 1. **Select a frame** on the canvas (Shift-select to audit several), or pick one from the list.
 2. Press **Run audit**.
 3. The summary shows the compliance %, then a split bar: on system · accepted exceptions · modified · off system.
-4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. The same issue repeated across instances is one row with a count («×30 · on 30 screens»), with Accept all and Show; click the row (or its arrow) to select them all on the canvas. Click the arrow to jump to the layer. The small flag beside the arrow reports an issue that isn't one (hover it for what it does).
+4. **Issues** are grouped by type, and each one shows the exact value that changed and how to fix it. The same issue repeated across instances is one row with a count («×30 · on 30 screens»), with Accept all and Show. Click any row to select its layers on the canvas. At the end of a row, the flag reports an issue that isn't one, and the box marks an old part that's out of this project's scope (it then doesn't block verification and is listed under Exceptions as «Out of scope»; anyone can undo it).
 5. **A section or several frames** get one verdict; **View details** in it opens the list of screens (failed first; frames without components fold into one line). Click a screen to see only its issues.
 5. Fix the issues and re-audit until the frame passes.
 

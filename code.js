@@ -1,8 +1,8 @@
 "use strict";
 
 var VERSION = {
-  major : 2,
-  minor : 16,
+  major : 3,
+  minor : 0,
   patch : 0,
   label : "",
 };
@@ -210,6 +210,7 @@ function handleInit() {
     setReviewers(guidelines);
     setTeamRules(guidelines);
     setEscalation(guidelines);
+    setFeatures(guidelines);
     loadNoWrite();
     loadTelemetry().then(function() {
       track("open", { editor: figma.editorType, role: isAdmin() ? "admin" : isReviewer() ? "reviewer" : "designer", cfg: configSource });
@@ -228,6 +229,7 @@ function handleInit() {
     setReviewers(null);
     setTeamRules(null);
     setEscalation(null);
+    setFeatures(null);
     loadNoWrite();
     loadTelemetry();
     setSharedToken(null);
@@ -1822,7 +1824,8 @@ function trackAudit(t0, valid, invalid, warnings, frameStates, notes) {
     var ck = c + "|" + (it.componentName || it.mainComponentName || "");
     comps[ck] = (comps[ck] || 0) + 1;
   });
-  valid.forEach(function(it) { if (it.resolved) { if (it.resolved.rule) { rule++; } else { acc++; } } });
+  var oos = 0;
+  valid.forEach(function(it) { if (it.resolved) { if (it.resolved.rule) { rule++; } else if (it.resolved.kind === "scope") { oos++; } else { acc++; } } });
   (warnings || []).forEach(function(x) { (x.problems || []).forEach(function(pb) { w[pb.type] = (w[pb.type] || 0) + 1; }); });
   var top = Object.keys(comps).sort(function(a, b) { return comps[b] - comps[a]; }).slice(0, 30).map(function(k) {
     var i = k.indexOf("|"); return { k: k.slice(0, i), c: k.slice(i + 1), n: comps[k] };
@@ -1837,7 +1840,7 @@ function trackAudit(t0, valid, invalid, warnings, frameStates, notes) {
   var usedTop = Object.keys(used).sort(function(a, b) { return used[b] - used[a]; }).slice(0, 30).map(function(k) { return { c: k, n: used[k] }; });
   var total = valid.length + invalid.length;
   track("audit", {
-    ms: Date.now() - t0, nf: (frameStates || []).length, n: total, ok: valid.length - acc - rule, acc: acc, rule: rule, iss: invalid.length,
+    ms: Date.now() - t0, nf: (frameStates || []).length, n: total, ok: valid.length - acc - rule - oos, acc: acc, rule: rule, oos: oos, iss: invalid.length,
     score: total ? Math.round(100 * valid.length / total) : null, r: r, mod: mod, w: w, ver: ver, fail: fail, empty: empty,
     nw: noWrite, notes: (notes || []).map(function(x) { return x.code; }), comps: top, used: usedTop, fr: frames,
     ly: rawSeen, lr: rawHit, lyc: rawSeen >= RAW_COUNT_MAX || undefined,   // layers outside components checked / with a raw value (lyc: count capped)
@@ -2423,7 +2426,9 @@ function readResolution(node) {
 
 function publicResolution(rec) {
   if (!rec) { return null; }
-  return { by: rec.by ? rec.by.name : null, at: rec.at, note: rec.note || "" };
+  var out = { by: rec.by ? rec.by.name : null, at: rec.at, note: rec.note || "" };
+  if (rec.kind) { out.kind = rec.kind; }
+  return out;
 }
 
 // v2 (2.7.2): geometry ("Dimensions") is left out of the signature, like the verification
@@ -2549,6 +2554,14 @@ function buildRuleItem(instance, issue, rule, sourceName) {
 // after it went out, each instance is marked so the result shows "sent to the DS team".
 var ESC_KEY = "escalation";
 var escalationCfg = null;   // { url, channel }
+// ── Staged rollout: the team config's "features" switch parts of the UI on for everyone (no plugin update) ──
+// { escalate, handoff, history, warnings, exports } — missing = on. Only the UI hides; engines keep recording.
+var FEATURE_KEYS = ["escalate", "handoff", "history", "warnings", "exports", "scope"];
+function setFeatures(guidelines) {
+  var f = (guidelines && guidelines.features) || {}, out = {};
+  FEATURE_KEYS.forEach(function(k) { out[k] = f[k] !== false; });
+  send("FEATURES", { flags: out });
+}
 function setEscalation(guidelines) {
   var m = guidelines && guidelines.mattermost, url = "";
   if (m) { url = m.webhook ? String(m.webhook) : (m.webhookB64 ? b64decode(m.webhookB64) : ""); }
@@ -2598,9 +2611,12 @@ function buildResolvedItem(instance, issue, rec, sourceName) {
 }
 
 // Records one exception. Resolves with the RESOLVE_RESULT payload (never rejects).
+// kind "scope": anyone marks an issue as out of this project's scope (an old part the project doesn't update) — it
+// doesn't count against the verdict, is told apart from reviewer exceptions everywhere, and expires like they do.
 function resolveOne(msg) {
+  var scope = msg.kind === "scope";
   if (isDevMode())  { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "Resolving isn't available in Dev Mode." }); }
-  if (!isReviewer()) { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "Only design system reviewers can resolve issues." }); }
+  if (!scope && !isReviewer()) { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "Only design system reviewers can resolve issues." }); }
   if (!RESOLVABLE[msg.reason]) { return Promise.resolve({ success: false, nodeId: msg.nodeId, error: "This issue type can't be resolved." }); }
 
   return getNodeSafely(msg.nodeId).then(function(node) {
@@ -2618,6 +2634,7 @@ function resolveOne(msg) {
         by     : { id: u ? u.id : null, name: u ? u.name : null },
         at     : new Date().toISOString(),
       };
+      if (scope) { rec.kind = "scope"; }
       node.setSharedPluginData(VERIFY_NS, RESOLVE_KEY, JSON.stringify(rec));
       return { success: true, nodeId: node.id, resolution: publicResolution(rec) };
     });
@@ -2628,7 +2645,7 @@ function resolveOne(msg) {
 
 function handleResolveIssue(msg) {
   resolveOne(msg).then(function(res) {
-    if (res.success) { tmFramesOf([msg.nodeId]).then(function(fh) { track("accept", { r: msg.reason || null, n: 1, note: !!msg.note, fh: fh }); }); }
+    if (res.success) { tmFramesOf([msg.nodeId]).then(function(fh) { track(msg.kind === "scope" ? "scope" : "accept", { r: msg.reason || null, n: 1, note: !!msg.note, fh: fh }); }); }
     send("RESOLVE_RESULT", res);
   });
 }
@@ -2641,7 +2658,7 @@ function handleResolveIssues(msg) {
   var chain = Promise.resolve();
   items.forEach(function(it) {
     chain = chain.then(function() {
-      return resolveOne({ nodeId: it.nodeId, reason: it.reason, note: msg.note }).then(function(res) {
+      return resolveOne({ nodeId: it.nodeId, reason: it.reason, note: msg.note, kind: msg.kind }).then(function(res) {
         if (res.success) { ok++; } else { failed++; }
         res.bulk = true;
         send("RESOLVE_RESULT", res);
@@ -2649,15 +2666,17 @@ function handleResolveIssues(msg) {
     });
   });
   chain.then(function() {
-    if (ok) { tmFramesOf(items.map(function(it) { return it.nodeId; })).then(function(fh) { track("accept", { r: null, n: ok, note: !!msg.note, bulk: true, fh: fh }); }); }
+    if (ok) { tmFramesOf(items.map(function(it) { return it.nodeId; })).then(function(fh) { track(msg.kind === "scope" ? "scope" : "accept", { r: items[0] ? items[0].reason : null, n: ok, note: !!msg.note, bulk: true, fh: fh }); }); }
     send("RESOLVE_BULK_DONE", { ok: ok, failed: failed });
   });
 }
 
 function handleUnresolveIssue(msg) {
-  if (isDevMode() || !isReviewer()) { send("UNRESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: "Only design system reviewers can undo a resolution." }); return; }
+  if (isDevMode()) { send("UNRESOLVE_RESULT", { success: false, nodeId: msg.nodeId, error: "Not available in Dev Mode." }); return; }
   getNodeSafely(msg.nodeId).then(function(node) {
     if (!node) { throw new Error("Instance not found."); }
+    var rec = readResolution(node);
+    if (!isReviewer() && !(rec && rec.kind === "scope")) { throw new Error("Only design system reviewers can undo a resolution."); }
     node.setSharedPluginData(VERIFY_NS, RESOLVE_KEY, "");
     // The issue is open again, so any frame verified with this approval is no longer verified.
     var p = node.parent;
@@ -2727,6 +2746,7 @@ function handleExportResolutions() {
                 component : names.name || "",
                 variant   : names.variant || "",
                 reason    : f.rec.reason || "",
+                kind      : f.rec.kind === "scope" ? "out of scope" : "exception",
                 by        : f.rec.by ? (f.rec.by.name || "") : "",
                 at        : f.rec.at || "",
                 note      : f.rec.note || "",
